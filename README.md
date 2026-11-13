@@ -48,7 +48,7 @@ FSEvents / mext open ──▶ PredictorEngine (Markov + EMA + время сут
 | **Оркестратор** | Rust `tokio` + `axum`, JSON-RPC 2.0 по UDS | `mext start/status/open/predict/warm/bench/index/query/doctor/stop`, профили по воркспейсам |
 | **Наблюдаемость** | SSE `/api/stream`, Prometheus `/metrics`, latency-гистограммы | дашборд без polling, 45+ метрик, p50/p95 прогрева и RAG-запросов; готовый Grafana-дашборд |
 | **GGUF** | mmap-парсер v1–v3, layer-warmer | чтение метаданных/таблицы тензоров без загрузки весов, группировка по слоям, `MADV_WILLNEED`-прогрев выбранных слоёв для llama.cpp-чекпоинтов |
-| **Dev-инструменты** | `make dev/review/ci`, launchd, GitHub Actions | watch-цикл пересборки, один прогон всех проверок, установка пользовательского сервиса, CI на macos-14 |
+| **Dev-инструменты** | `make dev/review/ci`, launchd, GitHub Actions | watch-цикл пересборки, один прогон всех проверок, установка пользовательского сервиса, CI на macos-15 |
 
 ---
 
@@ -437,7 +437,7 @@ mtime-цикл; при Ctrl-C демон останавливается и со�
 ставится в `~/Library/LaunchAgents/com.mext.daemon.plist` с `KeepAlive` и логом
 `$MEXT_HOME/service.log`.
 
-CI (`.github/workflows/ci.yml`) гоняет на `macos-14`: `cargo fmt --check`,
+CI (`.github/workflows/ci.yml`) гоняет на `macos-15`: `cargo fmt --check`,
 `cargo test`, `pytest`, `node --check`, `mext-ai selftest` (если MLX доступен),
 с кэшем cargo/pip и загрузкой `~/.mext/mext.log` при падении.
 

@@ -24,7 +24,7 @@ make e2e                # boots a real daemon: CLI + HTTP, no MLX required
 make lint               # fmt-check + clippy -D warnings + ruff
 ```
 
-All four must pass. CI runs the same set on `macos-14`.
+All four must pass. CI runs the same set on `macos-15`.
 
 ## Code style
 
