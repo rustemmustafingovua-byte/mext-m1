@@ -23,7 +23,7 @@ from .store import ColdStore
 
 log = logging.getLogger("mext_ai.wrap")
 
-__all__ = ["wrap_cold_modules", "hot_bytes"]
+__all__ = ["hot_bytes", "wrap_cold_modules"]
 
 
 def wrap_cold_modules(model: Any, store: ColdStore) -> dict:
@@ -56,7 +56,7 @@ def wrap_cold_modules(model: Any, store: ColdStore) -> dict:
         switches.append(paged)
         wrapped += 1
     switches.sort(key=lambda switch: switch.layer_index)
-    for current, upcoming in zip(switches, switches[1:]):
+    for current, upcoming in zip(switches, switches[1:]):  # noqa: B905
         current.next_switch = upcoming
 
     for name, module in list(modules.items()):

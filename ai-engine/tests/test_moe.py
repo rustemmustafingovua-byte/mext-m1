@@ -10,8 +10,8 @@ pytestmark = pytest.mark.skipif(not HAS_MLX, reason="MLX is not installed")
 if HAS_MLX:
     import mlx.core as mx
 
-from mext_ai.neural.moe import ExpertPager
 from mext_ai.neural.model import MiniTransformer
+from mext_ai.neural.moe import ExpertPager
 from mext_ai.neural.runner import MextModelRunner
 from mext_ai.neural.store import ColdStore
 

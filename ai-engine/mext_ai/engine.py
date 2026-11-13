@@ -101,7 +101,7 @@ class AiEngine:
             if self.prefetcher is not None and result.get("clusters"):
                 # Warm the first partition so the very first query is fast.
                 self.prefetcher.feed("readme")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("RAG indexing failed")
             self.rag_status.update(ready=False, building=False, error=f"{type(exc).__name__}: {exc}")
 

@@ -24,14 +24,14 @@ import os
 import queue
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..memory import (
     HAS_MLX,
     AdaptiveCacheController,
     MemoryProfiler,
-    metal_stats,
     set_metal_cache_limit,
 )
 from .plan import WeightPlan, build_plan, include_in_layers
@@ -46,7 +46,7 @@ MB = 1024 * 1024
 
 
 class _Job:
-    __slots__ = ("fn", "args", "result", "error", "done")
+    __slots__ = ("args", "done", "error", "fn", "result")
 
     def __init__(self, fn: Callable[..., Any], args: tuple):
         self.fn = fn
@@ -111,7 +111,7 @@ class MextModelRunner:
         self.metal: dict[str, int] = {}
         self.started_at = time.time()
 
-        self._jobs: "queue.Queue[_Job | None]" = queue.Queue()
+        self._jobs: queue.Queue[_Job | None] = queue.Queue()
         self._stopped = threading.Event()
         self._worker = threading.Thread(target=self._loop, name="mext-model", daemon=True)
         self._worker.start()
@@ -157,7 +157,7 @@ class MextModelRunner:
         self.mode = "loading"
         try:
             self._run(self._load_impl)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.exception("model load failed")
             self.mode = "unavailable"
             self.load_error = f"{type(exc).__name__}: {exc}"
@@ -208,7 +208,7 @@ class MextModelRunner:
     def _try_mlx_lm_impl(self) -> bool:
         """Wrap a local ``mlx_lm`` checkpoint, fp16 or 4/8-bit quantised."""
         try:
-            import mlx_lm  # noqa: F401
+            import mlx_lm
         except Exception:  # noqa: BLE001
             return False
         model_path = Path(self.model_id)

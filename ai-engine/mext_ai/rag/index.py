@@ -18,9 +18,9 @@ import json
 import logging
 import os
 import time
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
 
 import numpy as np
 
@@ -159,7 +159,7 @@ def iter_chunks(
 
 
 def kmeans(vectors: np.ndarray, k: int, iters: int = 8, seed: int = 7) -> np.ndarray:
-    n, dim = vectors.shape
+    n, _dim = vectors.shape
     k = max(1, min(int(k), n))
     if k == 1:
         centroid = vectors.mean(axis=0, keepdims=True)
@@ -207,7 +207,7 @@ class RagIndex:
         self._table_obj = None
         self._manifest: dict = {"paths": {}, "dim": self.dim}
         self._centroids_cache: np.ndarray | None = None
-        self._warm: "dict[int, list[dict]]" = {}
+        self._warm: dict[int, list[dict]] = {}
         self._warm_order: list[int] = []
         self._warm_bytes = 0
         self.index_type = "unknown"
@@ -304,7 +304,7 @@ class RagIndex:
             self._append_rows(new_chunks, vectors, assignment)
             self._write_clusters(new_chunks, assignment, append=True)
 
-        for chunk, cluster in zip(new_chunks, assignment):
+        for chunk, cluster in zip(new_chunks, assignment, strict=True):
             entry = self._manifest["paths"].setdefault(
                 chunk.path, {"mtime": chunk.mtime, "cluster": int(cluster), "chunks": 0}
             )
@@ -343,7 +343,7 @@ class RagIndex:
 
     def _rows(self, chunks: list[DocChunk], vectors: np.ndarray, assignment: np.ndarray) -> list[dict]:
         rows = []
-        for chunk, vector, cluster in zip(chunks, vectors, assignment):
+        for chunk, vector, cluster in zip(chunks, vectors, assignment, strict=True):
             rows.append(
                 {
                     "id": f"{chunk.path}#{chunk.chunk}",
@@ -408,7 +408,7 @@ class RagIndex:
 
     def _write_clusters(self, chunks: list[DocChunk], assignment: np.ndarray, append: bool) -> None:
         grouped: dict[int, list[dict]] = {}
-        for chunk, cluster in zip(chunks, assignment):
+        for chunk, cluster in zip(chunks, assignment, strict=True):
             grouped.setdefault(int(cluster), []).append(
                 {"path": chunk.path, "chunk": chunk.chunk, "text": chunk.text, "lang": chunk.lang}
             )
@@ -548,7 +548,7 @@ class RagIndex:
             "available": table is not None,
             "docs": len(self._manifest.get("paths", {})),
             "chunks": chunks,
-            "clusters": int(len(centroids)) if centroids is not None else 0,
+            "clusters": len(centroids) if centroids is not None else 0,
             "index_type": self.index_type,
             "index_bytes": self._dir_size(),
             "warm_bytes": self.warm_cache_bytes(),

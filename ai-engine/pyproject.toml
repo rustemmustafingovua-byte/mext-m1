@@ -14,7 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 pdf = ["pypdf>=4"]
 real-model = ["mlx-lm>=0.20", "huggingface_hub>=0.24"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6", "mlx-lm>=0.20"]
 
 [project.scripts]
 mext-ai = "mext_ai.cli:main"
@@ -29,3 +29,15 @@ include = ["mext_ai*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = ["build", ".venv", "*.egg-info"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "RUF", "BLE"]
+ignore = ["B008", "RUF001", "RUF002", "RUF003", "SIM105", "RUF007"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B017", "SIM117", "E402"]

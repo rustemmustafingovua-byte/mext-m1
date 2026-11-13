@@ -16,5 +16,10 @@ ai-engine/build/
 .mext/
 *.sock
 
+# Release artefacts
+dist/
+*.tar.gz
+*.sha256
+
 # OS
 .DS_Store

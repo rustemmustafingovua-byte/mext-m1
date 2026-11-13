@@ -12,14 +12,14 @@ For production weights, :meth:`MextModelRunner.load` first tries to wrap a real
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from ..memory import HAS_MLX
 from .moe import ExpertPager
 
 if HAS_MLX:  # pragma: no cover - exercised on Apple Silicon
     import mlx.core as mx
-    import mlx.nn as nn
+    from mlx import nn
 else:  # pragma: no cover - import-time shim for non-MLX hosts
     mx = None  # type: ignore[assignment]
     nn = object  # type: ignore[assignment]
@@ -242,7 +242,7 @@ class MiniTransformer:
 
     def forward(self, ids, on_layer: Callable[[int], None] | None = None, on_route=None):
         _require_mlx()
-        batch, length = ids.shape
+        _, length = ids.shape
         x = self.embed[ids]
         mask = self._causal_mask(length)
         for index, block in self.blocks_iterator():

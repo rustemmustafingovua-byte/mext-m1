@@ -26,18 +26,18 @@ import mmap
 import os
 import re
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "GGML_TYPES",
+    "GGUF_VALUE_TYPES",
     "GgufError",
+    "GgufFile",
     "GgufFormatError",
     "GgufTruncatedError",
     "TensorInfo",
-    "GgufFile",
-    "GGML_TYPES",
-    "GGUF_VALUE_TYPES",
 ]
 
 GGUF_MAGIC = b"GGUF"
@@ -189,7 +189,7 @@ def _product(dims: tuple[int, ...]) -> int:
 class _Reader:
     """Bounds-checked little-endian reader over an mmap / bytes buffer."""
 
-    def __init__(self, data: "mmap.mmap | bytes") -> None:
+    def __init__(self, data: mmap.mmap | bytes) -> None:
         self.data = data
         self.pos = 0
 
@@ -274,7 +274,7 @@ class GgufFile:
     # Open / close
     # ------------------------------------------------------------------
     @classmethod
-    def open(cls, path: str | os.PathLike[str]) -> "GgufFile":
+    def open(cls, path: str | os.PathLike[str]) -> GgufFile:
         obj = cls(path)
         obj._open()
         return obj
@@ -306,10 +306,10 @@ class GgufFile:
                 pass
             self.mm = None
 
-    def __enter__(self) -> "GgufFile":
+    def __enter__(self) -> GgufFile:
         return self
 
-    def __exit__(self, *exc_info: Any) -> None:
+    def __exit__(self, *exc_info: object) -> None:
         self.close()
 
     @property

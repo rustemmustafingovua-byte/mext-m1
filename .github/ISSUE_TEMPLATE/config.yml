@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/rustemmustafingovua-byte/mext-m1/blob/main/README.md#troubleshooting
+    about: Common failures and their fixes (sockets, pressure, MLX, GGUF).
+  - name: Security issue
+    url: https://github.com/rustemmustafingovua-byte/mext-m1/security/policy
+    about: Please report vulnerabilities privately, not as a public issue.

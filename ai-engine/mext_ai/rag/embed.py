@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 

@@ -525,7 +525,7 @@ impl CompressedMemoryPool {
                 })
             })
             .collect();
-        out.sort_by(|a, b| b.logical_bytes.cmp(&a.logical_bytes));
+        out.sort_by_key(|entry| std::cmp::Reverse(entry.logical_bytes));
         out.truncate(limit);
         out
     }
@@ -546,7 +546,7 @@ fn canonical(path: &Path) -> PathBuf {
 
 fn stamp(meta: &std::fs::Metadata) -> (u64, i64) {
     use std::os::unix::fs::MetadataExt;
-    let mtime_ns = meta.mtime() as i64 * 1_000_000_000 + meta.mtime_nsec() as i64;
+    let mtime_ns = meta.mtime() * 1_000_000_000 + meta.mtime_nsec();
     (meta.len(), mtime_ns)
 }
 

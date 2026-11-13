@@ -3,7 +3,7 @@
 //! Layering (bottom → top):
 //! * [`platform`]  — macOS sysctl / vm_stat / madvise wrappers (safe API).
 //! * [`memmap`]    — page-aligned anonymous mappings we fully own, so
-//!                   `madvise(MADV_DONTNEED)` is legal and returns pages to XNU.
+//!   `madvise(MADV_DONTNEED)` is legal and returns pages to XNU.
 //! * [`arc`]       — byte-capacity ARC (Adaptive Replacement Cache).
 //! * [`arena`]     — refcounted page-packing arena for small compressed frames.
 //! * [`histogram`] — fixed-bucket latency histograms for Prometheus.

@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from .memory import MB, HAS_MLX
+from .memory import HAS_MLX, MB
 
 log = logging.getLogger("mext_ai.cli")
 
@@ -360,10 +360,10 @@ def cmd_selftest(args: argparse.Namespace) -> int:
         )
 
     def moe_paging():
+        import mlx.core as mx
+
         from .neural.moe import ExpertPager
         from .neural.store import ColdStore
-
-        import mlx.core as mx
 
         store = ColdStore(state / "moe", 1 * MB)
         pager = ExpertPager(store, "selftest.mlp", 64, 96, 8, 2)
@@ -381,13 +381,12 @@ def cmd_selftest(args: argparse.Namespace) -> int:
         )
 
     def switch_paging():
+        import mlx.core as mx
+        import numpy as np
         from mlx_lm.models import switch_layers
 
         from .neural.store import ColdStore
         from .neural.switch import PagedSwitchGLU
-
-        import mlx.core as mx
-        import numpy as np
 
         glu = switch_layers.SwitchGLU(64, 128, 4)
         rng = np.random.default_rng(1)

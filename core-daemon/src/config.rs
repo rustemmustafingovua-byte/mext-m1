@@ -235,7 +235,7 @@ pub fn list_profiles_in(dir: &Path) -> Vec<ProfileInfo> {
             modified_ms,
         });
     }
-    out.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    out.sort_by_key(|profile| std::cmp::Reverse(profile.modified_ms));
     out
 }
 

@@ -22,9 +22,9 @@ import queue
 import threading
 import time
 from collections import OrderedDict, deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 
@@ -67,9 +67,9 @@ class ColdStore:
         self.budget = max(int(budget_bytes), MIN_BUDGET)
         self.np_cap = max(MIN_BUDGET, int(self.budget * 0.4))
 
-        self._mx: "OrderedDict[str, object]" = OrderedDict()
+        self._mx: OrderedDict[str, object] = OrderedDict()
         self._mx_bytes = 0
-        self._np_ready: "OrderedDict[str, np.ndarray]" = OrderedDict()
+        self._np_ready: OrderedDict[str, np.ndarray] = OrderedDict()
         self._np_bytes = 0
         self._pinned: set[str] = set()
         self._need_clear = False
@@ -83,7 +83,7 @@ class ColdStore:
         self.prefetch_loads = 0
         self._io_window: deque[tuple[float, int]] = deque()
 
-        self._queue: "queue.Queue[str | None]" = queue.Queue(maxsize=1024)
+        self._queue: queue.Queue[str | None] = queue.Queue(maxsize=1024)
         self._pending: set[str] = set()
         self._stop = threading.Event()
         self._worker = threading.Thread(
@@ -272,7 +272,7 @@ class ColdStore:
 
     def _trim_np_locked(self) -> None:
         while self._np_bytes > self.np_cap and self._np_ready:
-            name, buffer = self._np_ready.popitem(last=False)
+            _name, buffer = self._np_ready.popitem(last=False)
             self._np_bytes = max(0, self._np_bytes - int(buffer.nbytes))
 
     def warm(self, names: Iterable[str], wait: float = 0.0) -> int:

@@ -21,6 +21,6 @@ __all__ = [
     "GgufFile",
     "GgufFormatError",
     "GgufTruncatedError",
-    "TensorInfo",
     "LayerPageWarmer",
+    "TensorInfo",
 ]

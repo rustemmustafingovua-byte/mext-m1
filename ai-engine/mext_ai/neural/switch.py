@@ -28,7 +28,7 @@ if HAS_MLX:  # pragma: no cover - Apple Silicon only
 
 log = logging.getLogger("mext_ai.switch")
 
-__all__ = ["PagedSwitchProjection", "PagedSwitchGLU"]
+__all__ = ["PagedSwitchGLU", "PagedSwitchProjection"]
 
 _LAYER_RE = re.compile(r"\.layers\.(\d+)\.")
 
@@ -155,7 +155,7 @@ class PagedSwitchGLU:
 
     # ------------------------------------------------------------------
     @classmethod
-    def from_module(cls, store, name: str, module) -> "PagedSwitchGLU":
+    def from_module(cls, store, name: str, module) -> PagedSwitchGLU:
         """Move every expert of an mlx-lm ``SwitchGLU`` to the store."""
         gate_mod, up_mod, down_mod = module.gate_proj, module.up_proj, module.down_proj
         quantized = type(gate_mod).__name__ == "QuantizedSwitchLinear"
@@ -242,10 +242,11 @@ class PagedSwitchGLU:
 
         gate = self.gate_proj(x, indices)
         up = self.up_proj(x, indices)
-        if self.activation is not None:
-            act = self.activation(up, gate)
-        else:
-            act = up * mx.sigmoid(gate)
+        act = (
+            self.activation(up, gate)
+            if self.activation is not None
+            else up * mx.sigmoid(gate)
+        )
         return self.down_proj(act, indices)
 
     # ------------------------------------------------------------------

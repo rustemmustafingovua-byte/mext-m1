@@ -1,5 +1,12 @@
 # MEXT-M1
 
+[![CI](https://github.com/rustemmustafingovua-byte/mext-m1/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rustemmustafingovua-byte/mext-m1/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/rustemmustafingovua-byte/mext-m1?display_name=tag)](https://github.com/rustemmustafingovua-byte/mext-m1/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%20arm64-black)
+![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)
+![Python](https://img.shields.io/badge/python-3.10--3.13-3776AB)
+
 **Предиктивное управление памятью для macOS на Apple Silicon** — userspace-аналог
 AMD MEXT. Три модуля работают как один конвейер: SSD → сжатый пул в RAM →
 Unified Memory, и всё это под одним CLI и живым дашбордом.
@@ -55,8 +62,22 @@ FSEvents / mext open ──▶ PredictorEngine (Markov + EMA + время сут
 
 ## Установка
 
+**Из релиза** (готовый arm64-бинарь, без Rust/Python на машине):
+
 ```bash
-cd ultraram
+curl -fsSL https://raw.githubusercontent.com/rustemmustafingovua-byte/mext-m1/main/scripts/install-release.sh -o /tmp/mext-install.sh
+bash /tmp/mext-install.sh            # checksum проверяется, ставит mext/mextd в ~/.local/bin
+```
+
+Rust-ядро и CLI работают сразу. Для нейрослоя и RAG нужен Python-стек — поставьте
+его из чекаута (`./setup.sh`, вариант ниже) или вручную:
+`pip install -e "ai-engine[dev,pdf]"`.
+
+**Из исходников** (полный стек, рекомендуется):
+
+```bash
+git clone https://github.com/rustemmustafingovua-byte/mext-m1.git
+cd mext-m1
 ./setup.sh                 # проверки + .venv + mlx/lancedb + release-сборка
 ./setup.sh --skip-ai       # только Rust-ядро, без MLX/LanceDB
 ./setup.sh --debug         # debug-сборка
@@ -592,7 +613,8 @@ ultraram/
 ├── scripts/dev.sh                watch-цикл пересборки и рестарта
 ├── scripts/install-service.sh    launchd user service
 ├── scripts/llama-with-mext.sh    llama.cpp + фоновый GGUF-warmer
-├── .github/workflows/ci.yml      CI на macos-14
+├── .github/                      CI, release-workflow, issue/PR-шаблоны, dependabot
+├── LICENSE · CHANGELOG.md · CONTRIBUTING.md · SECURITY.md · CODE_OF_CONDUCT.md
 ├── docs/dashboard.png            скриншот живого запуска
 ├── docs/grafana/                 Grafana-дашборд + инструкция по импорту
 ├── Makefile · setup.sh
@@ -605,3 +627,14 @@ ultraram/
 * Декодирование GGUF внутри MEXT (сейчас — только прогрев страниц для llama.cpp).
 * Гистограммы размера кадра и cache-hit по типам файлов.
 * Калибровка скорости prewarm под фактический темп чтения llama.cpp.
+
+---
+
+## Участие и лицензия
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — как собрать, что прогнать перед PR
+  (`make review`, `make lint`, `make e2e`), требования к тестам и метрикам.
+- [CHANGELOG.md](CHANGELOG.md) — что менялось между версиями.
+- [SECURITY.md](SECURITY.md) — приватный репорт уязвимостей и модель угроз.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — правила общения.
+- Лицензия: [MIT](LICENSE).

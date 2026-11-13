@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from mext_ai.memory import HAS_MLX
@@ -7,7 +6,7 @@ pytestmark = pytest.mark.skipif(not HAS_MLX, reason="MLX is not installed")
 
 if HAS_MLX:
     import mlx.core as mx
-    import mlx.nn as nn
+    from mlx import nn
 
 from mext_ai.neural.model import StreamedQuantizedLinear
 from mext_ai.neural.plan import build_plan, include_in_layers

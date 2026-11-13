@@ -17,7 +17,7 @@ PY          := .venv/bin/python
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build run run-ai dev dev-once review test test-rust test-py selftest ci e2e e2e-ai bench doctor fmt fmt-check clippy clean install-ai service-install service-uninstall service-status
+.PHONY: help build run run-ai dev dev-once review test test-rust test-py selftest ci e2e e2e-ai bench doctor fmt fmt-check lint clippy clean install-ai service-install service-uninstall service-status
 
 help:
 	@echo "MEXT-M1"
@@ -28,6 +28,7 @@ help:
 	@echo "  make dev-once   debug build only"
 	@echo "  make review     release build + cargo test + pytest + node check + selftest"
 	@echo "  make ci         same checks as GitHub Actions (no daemon)"
+	@echo "  make lint       fmt-check + clippy -D warnings + ruff"
 	@echo "  make test       cargo test, pytest, AI selftest"
 	@echo "  make e2e        boot a real daemon and verify CLI+HTTP end to end"
 	@echo "  make e2e-ai     same, with MLX neural loader and LanceDB RAG"
@@ -59,9 +60,14 @@ dev-once:
 review:
 	bash scripts/dev.sh --review
 
-ci: fmt-check test-rust test-py
+ci: lint test-rust test-py
 	node --check dashboard/app.js
 	$(PY) -m mext_ai selftest
+
+lint:
+	$(CARGO) fmt --manifest-path $(MANIFEST) --check
+	$(CARGO) clippy --manifest-path $(MANIFEST) --all-targets -- -D warnings
+	$(PY) -m ruff check ai-engine/mext_ai ai-engine/tests
 
 fmt-check:
 	$(CARGO) fmt --manifest-path $(MANIFEST) --check

@@ -12,10 +12,11 @@ import os
 import socket
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-__all__ = ["RpcError", "RpcClient", "RpcServer"]
+__all__ = ["RpcClient", "RpcError", "RpcServer"]
 
 
 class RpcError(RuntimeError):
@@ -179,7 +180,7 @@ class RpcServer:
             assert self._sock is not None
             try:
                 conn, _ = self._sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 return
@@ -218,7 +219,7 @@ class RpcServer:
             params = request.get("params") or {}
             result = self.handler(method, params)
             return {"jsonrpc": "2.0", "id": req_id, "result": result}
-        except Exception as exc:  # noqa: BLE001 — the boundary must never crash
+        except Exception as exc:  # noqa: BLE001
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,

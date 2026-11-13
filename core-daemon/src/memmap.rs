@@ -14,7 +14,7 @@ fn round_up(n: usize, align: usize) -> usize {
     if align == 0 {
         return n;
     }
-    (n + align - 1) / align * align
+    n.div_ceil(align) * align
 }
 
 /// An owned, page-aligned, anonymous mapping.

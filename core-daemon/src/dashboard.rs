@@ -638,6 +638,21 @@ async fn rag_query(
     }
 }
 
+/// Small helper used by the daemon to probe the port before printing the URL.
+pub async fn wait_ready(port: u16, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(60)).await;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -682,19 +697,4 @@ mod tests {
         let types = text.lines().filter(|l| l.starts_with("# TYPE")).count();
         assert_eq!(helps, types);
     }
-}
-
-/// Small helper used by the daemon to probe the port before printing the URL.
-pub async fn wait_ready(port: u16, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .is_ok()
-        {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(60)).await;
-    }
-    false
 }

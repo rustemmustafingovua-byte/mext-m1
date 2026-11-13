@@ -6,10 +6,10 @@ from .store import ColdStore, TensorRef
 __all__ = [
     "COLD",
     "HOT",
+    "ColdStore",
+    "TensorRef",
     "WeightPlan",
     "build_plan",
     "classify",
     "summarize",
-    "ColdStore",
-    "TensorRef",
 ]

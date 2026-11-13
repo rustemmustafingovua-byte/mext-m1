@@ -22,17 +22,17 @@ and streamed from SSD by :class:`mext_ai.neural.runner.MextModelRunner`.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 __all__ = [
+    "COLD",
+    "HOT",
     "WeightPlan",
     "build_plan",
     "classify",
     "include_in_layers",
     "summarize",
-    "HOT",
-    "COLD",
 ]
 
 HOT = "hot"
@@ -122,7 +122,7 @@ def build_plan(sizes: dict[str, int]) -> WeightPlan:
     return plan
 
 
-def include_in_layers(plan: WeightPlan, names: "Iterable[str]") -> None:
+def include_in_layers(plan: WeightPlan, names: Iterable[str]) -> None:
     """Make sure every stored tensor is prefetched together with its layer.
 
     Quantised models keep ``weight`` + ``scales`` + ``biases`` per projection;

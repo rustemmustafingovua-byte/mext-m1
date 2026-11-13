@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import mmap
 import time
-from typing import Iterable
+from collections.abc import Iterable
 
 from .reader import GgufFile
 
@@ -114,7 +114,7 @@ class LayerPageWarmer:
                 aligned_start = start - (start % _PAGE_SIZE)
                 aligned_len = (end - aligned_start + _PAGE_SIZE - 1) // _PAGE_SIZE * _PAGE_SIZE
                 mm.madvise(_MADV_WILLNEED, aligned_start, aligned_len)
-            except (OSError, ValueError):  # noqa: BLE001 - best effort
+            except (OSError, ValueError):
                 pass
 
         # Touch one byte per chunk so the pages are actually faulted in.

@@ -9,7 +9,7 @@ pytestmark = pytest.mark.skipif(not HAS_MLX, reason="MLX is not installed")
 
 if HAS_MLX:
     import mlx.core as mx
-    import mlx.nn as nn
+    from mlx import nn
 
 from mext_ai.neural.store import ColdStore
 from mext_ai.neural.switch import PagedSwitchGLU
@@ -76,7 +76,7 @@ def test_paged_switch_budget_and_prefetch(tmp_path):
     budget = store.stats()["budget_bytes"]
 
     rng = np.random.default_rng(4)
-    for step in range(6):
+    for _ in range(6):
         x = mx.array(rng.normal(size=(1, 8, 256)).astype(np.float32))
         indices = mx.array(rng.integers(0, 8, size=(1, 8, 2)).astype(np.uint32))
         paged.prefetch(paged.predicted_experts())
@@ -93,7 +93,7 @@ def test_paged_switch_budget_and_prefetch(tmp_path):
 
 
 def test_mixtral_end_to_end(tmp_path):
-    from mlx_lm.models import mixtral
+    mixtral = pytest.importorskip("mlx_lm.models.mixtral")
 
     args = mixtral.ModelArgs(
         model_type="mixtral",

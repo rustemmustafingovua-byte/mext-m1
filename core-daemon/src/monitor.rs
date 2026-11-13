@@ -510,17 +510,16 @@ fn spawn_fs_usage(root: &Path, tx: Sender<FsEvent>) -> Result<()> {
                 };
                 let raw = line[pos..].trim_end();
                 let path = PathBuf::from(raw);
-                if is_watched(&path, &root) {
-                    if tx
+                if is_watched(&path, &root)
+                    && tx
                         .send(FsEvent {
                             path,
                             kind: "open",
                             source: Source::TraceOpen,
                         })
                         .is_err()
-                    {
-                        break;
-                    }
+                {
+                    break;
                 }
             }
             let _ = child.kill();

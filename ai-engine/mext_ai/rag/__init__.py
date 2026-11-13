@@ -5,10 +5,10 @@ from .index import DocChunk, RagIndex, chunk_text, iter_chunks
 from .prefetcher import StreamingQueryPrefetcher
 
 __all__ = [
+    "DocChunk",
     "HashingEmbedder",
     "RagIndex",
-    "DocChunk",
+    "StreamingQueryPrefetcher",
     "chunk_text",
     "iter_chunks",
-    "StreamingQueryPrefetcher",
 ]

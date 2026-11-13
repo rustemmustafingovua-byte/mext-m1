@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest a capability or an improvement
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is painful today, and for whom?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should MEXT behave? Commands, metrics, flags.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Which layer does this touch?
+      options:
+        - File cache / predictor (Rust)
+        - Neural loader / MLX (Python)
+        - RAG / LanceDB (Python)
+        - Dashboard / metrics
+        - CLI / packaging / docs
+        - Not sure
+    validations:
+      required: true
