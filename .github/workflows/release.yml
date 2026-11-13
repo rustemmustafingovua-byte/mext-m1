@@ -43,7 +43,7 @@ jobs:
           cp core-daemon/target/release/mextd "dist/${NAME}/"
           cp README.md LICENSE CHANGELOG.md "dist/${NAME}/"
           tar -C dist -czf "dist/${NAME}.tar.gz" "${NAME}"
-          shasum -a 256 "dist/${NAME}.tar.gz" > "dist/${NAME}.tar.gz.sha256"
+          ( cd dist && shasum -a 256 "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256" )
           ls -lh dist
 
       - name: Publish GitHub release

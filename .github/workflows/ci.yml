@@ -14,7 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  macos-14:
+  test:
+    name: rust + python + e2e (macOS arm64)
     runs-on: macos-15
     timeout-minutes: 35
     steps:
@@ -23,6 +24,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache Rust build
         uses: actions/cache@v4
@@ -45,6 +48,12 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --check --manifest-path core-daemon/Cargo.toml
 
+      - name: Clippy
+        run: cargo clippy --manifest-path core-daemon/Cargo.toml --all-targets -- -D warnings
+
+      - name: Ruff
+        run: python -m ruff check ai-engine/mext_ai ai-engine/tests
+
       - name: Run Rust tests
         run: cargo test --manifest-path core-daemon/Cargo.toml
 
@@ -58,6 +67,12 @@ jobs:
 
       - name: Run Python tests
         run: pytest ai-engine -q
+
+      - name: e2e (Rust core, CLI + HTTP)
+        run: make e2e
+
+      - name: e2e (MLX neural loader + LanceDB RAG)
+        run: make e2e-ai
 
       - name: AI engine selftest
         run: |
