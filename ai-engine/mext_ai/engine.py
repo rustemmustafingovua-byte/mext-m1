@@ -214,6 +214,29 @@ class AiEngine:
             return self.index.build(force=bool(params.get("force", False)))
         if method == "rag.stats":
             return self.metrics()["rag"]
+        if method == "gguf.inspect":
+            path = str(params.get("path") or "")
+            if not path:
+                raise ValueError("gguf.inspect needs `path`")
+            from .gguf import GgufFile
+
+            with GgufFile.open(path) as gguf:
+                return gguf.summary()
+        if method == "gguf.warm":
+            path = str(params.get("path") or "")
+            if not path:
+                raise ValueError("gguf.warm needs `path`")
+            from .gguf import GgufFile, LayerPageWarmer
+
+            layers = [int(v) for v in (params.get("layers") or [])]
+            lookahead = int(params.get("lookahead", 2))
+            with GgufFile.open(path) as gguf:
+                warmer = LayerPageWarmer(gguf, lookahead=lookahead)
+                result = warmer.warm_layers(layers)
+                result["predict_next"] = warmer.predict_next()
+                result["stats"] = warmer.stats()
+                result["layers_total"] = len(gguf.layers)
+                return result
         if method == "shutdown":
             threading.Thread(target=self._delayed_stop, daemon=True).start()
             return {"stopping": True}
@@ -246,6 +269,7 @@ class AiEngine:
             "neural_mode": neural.get("mode"),
             "rag_ready": self.rag_ready(),
             "rag_status": self.rag_status,
+            "gguf": True,
         }
 
     def metrics(self) -> dict:

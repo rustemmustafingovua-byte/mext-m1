@@ -105,13 +105,7 @@ impl Predictor {
                 report.transition = true;
 
                 if row.len() > MAX_ROW {
-                    // Keep the row bounded: drop weakest edges.
-                    let mut pairs: Vec<(String, f32)> =
-                        row.iter().map(|(k, v)| (k.clone(), *v)).collect();
-                    pairs
-                        .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                    let keep: HashMap<String, f32> = pairs.into_iter().take(MAX_ROW / 2).collect();
-                    *row = keep;
+                    Self::bound_row(row);
                 }
             }
         }
@@ -274,11 +268,80 @@ impl Predictor {
         }
     }
 
+    /// Number of distinct paths tracked in the frequency table.
+    /// Keep only the strongest edges of a row (bounded graph growth).
+    fn bound_row(row: &mut HashMap<String, f32>) {
+        let mut pairs: Vec<(String, f32)> = row.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        pairs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let keep: HashMap<String, f32> = pairs.into_iter().take(MAX_ROW / 2).collect();
+        *row = keep;
+    }
+
+    /// Merge another predictor into this one, scaling its evidence by `weight`.
+    ///
+    /// Edges, frequency and hourly profiles are additive; counters are scaled so
+    /// the online hit-rate stays comparable. Used by `mext profiles merge` to
+    /// bootstrap a new project from learned sessions.
+    pub fn merge_from(&mut self, other: &Predictor, weight: f32) {
+        if !weight.is_finite() || weight <= 0.0 {
+            return;
+        }
+        let scale = |value: u64| -> u64 { ((value as f64) * weight as f64).round() as u64 };
+
+        for (source, row) in &other.edges {
+            let target = self.edges.entry(source.clone()).or_default();
+            for (destination, edge) in row {
+                let add = edge * weight;
+                if add.is_finite() && add > 0.0 {
+                    *target.entry(destination.clone()).or_insert(0.0) += add;
+                }
+            }
+            if target.len() > MAX_ROW {
+                Self::bound_row(target);
+            }
+        }
+        for (path, frequency) in &other.frequency {
+            let add = frequency * weight;
+            if add.is_finite() && add > 0.0 {
+                *self.frequency.entry(path.clone()).or_insert(0.0) += add;
+            }
+        }
+        for (path, hours) in &other.hourly {
+            let target = self
+                .hourly
+                .entry(path.clone())
+                .or_insert_with(|| vec![0.0; 24]);
+            for (index, value) in hours.iter().enumerate().take(24) {
+                let add = value * weight;
+                if add.is_finite() && add > 0.0 {
+                    target[index] += add;
+                }
+            }
+        }
+
+        self.transitions = self.transitions.saturating_add(other.transitions);
+        self.hits = self.hits.saturating_add(scale(other.hits));
+        self.attempts = self.attempts.saturating_add(scale(other.attempts));
+        self.observations = self.observations.saturating_add(scale(other.observations));
+        if self.last.is_none() {
+            self.last = other.last.clone();
+        }
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.frequency.len()
+    }
+
+    /// Number of learned Markov edges (distinct `from -> to` pairs).
+    pub fn edge_count(&self) -> usize {
+        self.edges.values().map(|r| r.len()).sum()
+    }
+
     pub fn stats(&self) -> PredictorStats {
         PredictorStats {
             transitions: self.transitions,
-            nodes: self.frequency.len(),
-            edges: self.edges.values().map(|r| r.len()).sum(),
+            nodes: self.node_count(),
+            edges: self.edge_count(),
             hits: self.hits,
             attempts: self.attempts,
             hit_rate: self.hit_rate(),
@@ -418,6 +481,54 @@ mod tests {
         assert_eq!(loaded.transitions, p.transitions);
         assert!(loaded.predict("x", 2, 2).iter().any(|i| i.path == "y"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn merge_keeps_both_graphs_and_scales_counters() {
+        let mut a = Predictor::new();
+        for _ in 0..4 {
+            a.observe("a.rs", 9);
+            a.observe("b.rs", 9);
+        }
+        let mut b = Predictor::new();
+        for _ in 0..2 {
+            b.observe("x.rs", 10);
+            b.observe("y.rs", 10);
+        }
+        let a_edges = a.edge_count();
+        let b_edges = b.edge_count();
+        let b_hits = b.hits;
+        let b_attempts = b.attempts;
+
+        a.merge_from(&b, 0.5);
+
+        assert_eq!(a.edge_count(), a_edges + b_edges);
+        assert_eq!(a.hits, (b_hits as f64 * 0.5).round() as u64);
+        assert_eq!(a.attempts, (b_attempts as f64 * 0.5).round() as u64);
+        let next = a.predict("a.rs", 9, 3);
+        assert_eq!(next[0].path, "b.rs");
+        let other = a.predict("x.rs", 10, 2);
+        assert!(other.iter().any(|p| p.path == "y.rs"));
+    }
+
+    #[test]
+    fn merge_weight_zero_is_noop_and_self_merge_doubles() {
+        let mut p = Predictor::new();
+        p.observe("a", 1);
+        p.observe("b", 1);
+        let snapshot = p.clone();
+        p.merge_from(&snapshot, 0.0);
+        assert_eq!(p.edge_count(), 1);
+        assert_eq!(p.transitions, 1);
+        assert_eq!(p.hits, 0);
+
+        let mut q = Predictor::new();
+        q.observe("a", 1);
+        q.observe("b", 1);
+        let before = q.edge_count();
+        q.merge_from(&q.clone(), 1.0);
+        assert_eq!(q.edge_count(), before);
+        assert_eq!(q.transitions, 2);
     }
 
     #[test]

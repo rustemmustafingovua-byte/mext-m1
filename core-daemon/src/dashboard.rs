@@ -13,6 +13,7 @@
 
 use crate::config::{human_bytes, parse_size};
 use crate::core::Core;
+use crate::histogram::Snapshot as HistogramSnapshot;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -124,15 +125,27 @@ async fn sse(
 /// Prometheus text exposition (scrape with `curl localhost:8765/metrics`).
 async fn prometheus(State(core): State<Arc<Core>>) -> Response {
     let core = Arc::clone(&core);
-    let snapshot = tokio::task::spawn_blocking(move || core.snapshot())
-        .await
-        .unwrap_or(Value::Null);
+    let (snapshot, warm, rag) = tokio::task::spawn_blocking(move || {
+        (
+            core.snapshot(),
+            core.warm_latency_snapshot(),
+            core.rag_latency_snapshot(),
+        )
+    })
+    .await
+    .unwrap_or_else(|_| {
+        (
+            Value::Null,
+            HistogramSnapshot::default(),
+            HistogramSnapshot::default(),
+        )
+    });
     (
         [(
             axum::http::header::CONTENT_TYPE,
             "text/plain; version=0.0.4; charset=utf-8",
         )],
-        render_prometheus(&snapshot),
+        render_prometheus(&snapshot, &warm, &rag),
     )
         .into_response()
 }
@@ -151,7 +164,11 @@ fn gauge(out: &mut String, name: &str, help: &str, value: f64) {
     out.push('\n');
 }
 
-pub fn render_prometheus(snapshot: &Value) -> String {
+pub fn render_prometheus(
+    snapshot: &Value,
+    warm: &HistogramSnapshot,
+    rag: &HistogramSnapshot,
+) -> String {
     let f = |path: &str| {
         snapshot
             .pointer(path)
@@ -408,6 +425,15 @@ pub fn render_prometheus(snapshot: &Value) -> String {
         f("/rag/latency_ms"),
     );
 
+    out.push_str(&warm.render_prometheus(
+        "mext_pool_warm_latency_ms",
+        "Warm latency in milliseconds (SSD read + LZ4 + ARC insert)",
+    ));
+    out.push_str(&rag.render_prometheus(
+        "mext_rag_query_latency_ms",
+        "RAG query latency in milliseconds",
+    ));
+
     let level = snapshot
         .pointer("/pressure/level")
         .and_then(|v| v.as_str())
@@ -551,11 +577,14 @@ async fn rag_query(
     .await
     {
         Ok(mut v) => {
+            let http_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let engine_ms = v
+                .get("latency_ms")
+                .and_then(|value| value.as_f64())
+                .filter(|value| *value > 0.0);
+            core.observe_rag_latency(engine_ms.unwrap_or(http_ms));
             if let Some(obj) = v.as_object_mut() {
-                obj.insert(
-                    "http_ms".into(),
-                    json!(started.elapsed().as_secs_f64() * 1000.0),
-                );
+                obj.insert("http_ms".into(), json!(http_ms));
             }
             Json(v)
         }
@@ -586,7 +615,11 @@ mod tests {
                        "experts_total": 8, "experts_resident": 2, "expert_hit_rate": 0.75},
             "rag": {"available": true, "chunks": 100, "clusters": 6, "prefetch_hit_rate": 0.5, "latency_ms": 3.2}
         });
-        let text = render_prometheus(&snapshot);
+        let text = render_prometheus(
+            &snapshot,
+            &HistogramSnapshot::default(),
+            &HistogramSnapshot::default(),
+        );
         assert!(text.contains("mext_uptime_seconds 12.5"));
         assert!(text.contains("mext_pool_resident_bytes 1048576"));
         assert!(text.contains("mext_pool_arena_pages 12"));
@@ -594,6 +627,10 @@ mod tests {
         assert!(text.contains("mext_neural_expert_hit_rate 0.75"));
         assert!(text.contains("mext_pressure_info{level=\"yellow\"} 1"));
         assert!(text.contains("# TYPE mext_pool_budget_bytes gauge"));
+        assert!(text.contains("# TYPE mext_pool_warm_latency_ms histogram"));
+        assert!(text.contains("mext_pool_warm_latency_ms_bucket{le=\"+Inf\"} 0"));
+        assert!(text.contains("mext_rag_query_latency_ms_count 0"));
+        assert!(text.contains("mext_pool_warm_latency_ms_sum 0"));
         // Every HELP line is followed by a TYPE line.
         let helps = text.lines().filter(|l| l.starts_with("# HELP")).count();
         let types = text.lines().filter(|l| l.starts_with("# TYPE")).count();

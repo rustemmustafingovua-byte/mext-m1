@@ -1,6 +1,6 @@
 [package]
 name = "mext-core"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.75"
 description = "MEXT-M1 — predictive memory tiering for Apple Silicon (userspace AMD-MEXT analogue)"

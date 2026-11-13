@@ -233,6 +233,8 @@ def prometheus_works():
     assert "mext_pool_resident_bytes" in text
     assert "mext_pressure_info{" in text
     assert "# TYPE mext_predictor_hit_rate gauge" in text
+    assert "mext_pool_warm_latency_ms_bucket{" in text
+    assert "mext_rag_query_latency_ms_count" in text
     return f"{len(text.splitlines())} lines"
 
 
@@ -280,6 +282,13 @@ if find "$STATE" -name predictor.json -print -quit | grep -q .; then
   ok "predictor state persisted ($(find "$STATE" -name predictor.json | sed "s|$STATE/||"))"
 else
   bad "predictor.json missing after shutdown"
+  exit 1
+fi
+
+if "$BIN" profiles list 2>/dev/null | grep -q "mext-e2e"; then
+  ok "profile visible via \`mext profiles list\`"
+else
+  bad "mext profiles list does not show the workspace profile"
   exit 1
 fi
 ok "stopped cleanly, no panics"

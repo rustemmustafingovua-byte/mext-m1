@@ -17,19 +17,25 @@ PY          := .venv/bin/python
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build run run-ai dev test test-rust test-py selftest e2e e2e-ai bench doctor fmt clippy clean install-ai
+.PHONY: help build run run-ai dev dev-once review test test-rust test-py selftest ci e2e e2e-ai bench doctor fmt fmt-check clippy clean install-ai service-install service-uninstall service-status
 
 help:
 	@echo "MEXT-M1"
 	@echo "  make build      cargo build --release"
 	@echo "  make run        start with cap=$(RAM) on port $(PORT) + --demo"
 	@echo "  make run-ai     same, but with the MLX/RAG engine and a real model id"
-	@echo "  make dev        debug build + run"
+	@echo "  make dev        watch loop: rebuild + restart debug daemon on edits"
+	@echo "  make dev-once   debug build only"
+	@echo "  make review     release build + cargo test + pytest + node check + selftest"
+	@echo "  make ci         same checks as GitHub Actions (no daemon)"
 	@echo "  make test       cargo test, pytest, AI selftest"
 	@echo "  make e2e        boot a real daemon and verify CLI+HTTP end to end"
 	@echo "  make e2e-ai     same, with MLX neural loader and LanceDB RAG"
 	@echo "  make bench      RAM/latency benchmark"
 	@echo "  make doctor     environment checks"
+	@echo "  make service-install   install a launchd user service (see --dry-run)"
+	@echo "  make service-status    launchctl state"
+	@echo "  make service-uninstall remove the service"
 	@echo "  make clean      remove build artefacts"
 	@echo
 	@echo "  variables: RAM=$(RAM) PORT=$(PORT) WORKSPACE=$(WORKSPACE)"
@@ -45,8 +51,30 @@ run-ai: build
 		--model mlx-community/Qwen2.5-Coder-7B-Instruct-4bit
 
 dev:
-	$(CARGO) build --manifest-path $(MANIFEST)
-	$(DEBUG_BIN) start --workspace "$(WORKSPACE)" --ram-limit $(RAM) --port $(PORT) --demo
+	bash scripts/dev.sh --workspace "$(WORKSPACE)" --ram-limit $(RAM) --port $(PORT)
+
+dev-once:
+	bash scripts/dev.sh --once
+
+review:
+	bash scripts/dev.sh --review
+
+ci: fmt-check test-rust test-py
+	node --check dashboard/app.js
+	$(PY) -m mext_ai selftest
+
+fmt-check:
+	$(CARGO) fmt --manifest-path $(MANIFEST) --check
+	$(PY) -m compileall -q ai-engine/mext_ai
+
+service-install: build
+	bash scripts/install-service.sh --workspace "$(WORKSPACE)" --ram-limit $(RAM) --port $(PORT)
+
+service-status:
+	bash scripts/install-service.sh --status
+
+service-uninstall:
+	bash scripts/install-service.sh --uninstall
 
 install-ai:
 	$(PY) -m pip install -e "ai-engine[dev,pdf]"

@@ -1,8 +1,11 @@
 //! Runtime configuration and human-friendly size parsing.
 
 use crate::monitor::TraceBackend;
+use crate::predictor::Predictor;
 use anyhow::{bail, Context, Result};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 /// Default dashboard port.
 pub const DEFAULT_PORT: u16 = 8765;
@@ -110,11 +113,27 @@ impl Config {
         format!("{}-{hash:04x}", sanitize_slug(base))
     }
 
+    pub fn profiles_dir(&self) -> PathBuf {
+        self.state_dir.join("profiles")
+    }
+
     pub fn predictor_state(&self) -> PathBuf {
-        self.state_dir
-            .join("profiles")
+        self.profiles_dir()
             .join(self.profile_name())
             .join("predictor.json")
+    }
+
+    /// All learned profiles, newest first.
+    pub fn list_profiles(&self) -> Vec<ProfileInfo> {
+        list_profiles_in(&self.profiles_dir())
+    }
+
+    pub fn load_profile(&self, name: &str) -> Result<Predictor> {
+        Predictor::load(&profile_path(&self.profiles_dir(), name)?)
+    }
+
+    pub fn save_profile(&self, name: &str, predictor: &Predictor) -> Result<()> {
+        predictor.save(&profile_path(&self.profiles_dir(), name)?)
     }
 
     pub fn ai_state(&self) -> PathBuf {
@@ -162,6 +181,75 @@ impl Config {
         }
         None
     }
+}
+
+/// One learned predictor profile on disk.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProfileInfo {
+    pub name: String,
+    pub path: String,
+    pub observations: u64,
+    pub transitions: u64,
+    pub hit_rate: f64,
+    pub edges: usize,
+    pub nodes: usize,
+    pub bytes: u64,
+    pub modified_ms: u64,
+}
+
+/// Scan `profiles/*/predictor.json`, skipping unreadable or corrupt files.
+pub fn list_profiles_in(dir: &Path) -> Vec<ProfileInfo> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            continue;
+        }
+        let path = entry.path().join("predictor.json");
+        let Ok(file_meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        let Ok(predictor) = Predictor::load(&path) else {
+            continue;
+        };
+        let modified_ms = file_meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        out.push(ProfileInfo {
+            name: entry.file_name().to_string_lossy().to_string(),
+            path: path.display().to_string(),
+            observations: predictor.observations(),
+            transitions: predictor.transitions,
+            hit_rate: predictor.hit_rate(),
+            edges: predictor.edge_count(),
+            nodes: predictor.node_count(),
+            bytes: file_meta.len(),
+            modified_ms,
+        });
+    }
+    out.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    out
+}
+
+/// Public helper so the CLI can compare user input with stored directory names.
+pub fn normalize_profile_name(name: &str) -> String {
+    sanitize_slug(name)
+}
+
+fn profile_path(dir: &Path, name: &str) -> Result<PathBuf> {
+    let slug = sanitize_slug(name);
+    if slug.is_empty() {
+        bail!("profile name is empty after sanitizing: {name:?}");
+    }
+    Ok(dir.join(slug).join("predictor.json"))
 }
 
 fn home_dir() -> Result<PathBuf> {
@@ -305,6 +393,26 @@ mod tests {
         assert_eq!(sanitize_slug("my project/one"), "my-project-one");
         assert_eq!(sanitize_slug("__weird//name__"), "weird-name");
         assert!(sanitize_slug(&"x".repeat(80)).len() <= 32);
+    }
+
+    #[test]
+    fn lists_profiles_and_skips_corrupt() {
+        let dir = std::env::temp_dir().join(format!("mext-profiles-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("alpha")).unwrap();
+        std::fs::create_dir_all(dir.join("broken")).unwrap();
+        let mut p = Predictor::new();
+        p.observe("a", 9);
+        p.observe("b", 9);
+        p.save(&dir.join("alpha/predictor.json")).unwrap();
+        std::fs::write(dir.join("broken/predictor.json"), b"{not json").unwrap();
+
+        let profiles = list_profiles_in(&dir);
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].name, "alpha");
+        assert_eq!(profiles[0].transitions, 1);
+        assert!(profiles[0].bytes > 0);
+        assert_eq!(normalize_profile_name("My Project/One"), "my-project-one");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

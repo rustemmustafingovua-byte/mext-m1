@@ -341,6 +341,29 @@
         "textMode": "auto"
       },
       "targets": [{ "refId": "A", "expr": "mext_rss_bytes" }]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Latency p95: warm / RAG query",
+      "description": "histogram_quantile over mext_pool_warm_latency_ms_bucket and mext_rag_query_latency_ms_bucket.",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 41 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum(rate(mext_pool_warm_latency_ms_bucket[5m])) by (le))", "legendFormat": "warm p95" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum(rate(mext_rag_query_latency_ms_bucket[5m])) by (le))", "legendFormat": "RAG p95" }
+      ]
     }
   ],
   "refresh": "5s",

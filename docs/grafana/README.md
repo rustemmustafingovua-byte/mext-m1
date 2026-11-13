@@ -67,6 +67,7 @@ scrape_configs:
 | Throughput | `mext_neural_tokens_per_second` | токены/с |
 | RAG | `mext_rag_chunks`, `mext_rag_clusters`, `mext_rag_latency_ms`, `mext_rag_prefetch_hit_rate` | состояние индекса и префетча запросов |
 | Bytes returned | `mext_pool_released_bytes_total` | сколько реально вернули macOS через `madvise` |
+| Latency p95 | `mext_pool_warm_latency_ms_bucket`, `mext_rag_query_latency_ms_bucket` | p95 прогрева файла и RAG-запроса (histogram_quantile) |
 | Evictions / RSS | `mext_pool_evictions_total`, `mext_rss_bytes` | давление на бюджет и вес демона |
 
 Полный список метрик: `curl -s localhost:8765/metrics | grep '^# HELP'`.

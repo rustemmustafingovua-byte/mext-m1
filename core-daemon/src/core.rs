@@ -6,6 +6,7 @@
 
 use crate::bridge::AiBridge;
 use crate::config::{human_bytes, Config};
+use crate::histogram::{Histogram, Snapshot as HistogramSnapshot};
 use crate::metrics::{unix_now, EventLog, PlatformSampler, Rate};
 use crate::monitor::{is_watched, Source};
 use crate::pool::CompressedMemoryPool;
@@ -59,6 +60,10 @@ pub struct Core {
     manual_budget: AtomicI64,
     shutdown: AtomicBool,
     last_persist: Mutex<Instant>,
+    /// Latency of a warm (SSD read + LZ4 + insert), including cache hits.
+    warm_latency: Histogram,
+    /// End-to-end latency of RAG queries proxied through the dashboard.
+    rag_latency: Histogram,
 }
 
 impl Core {
@@ -92,6 +97,8 @@ impl Core {
             manual_budget: AtomicI64::new(0),
             shutdown: AtomicBool::new(false),
             last_persist: Mutex::new(Instant::now()),
+            warm_latency: Histogram::new(),
+            rag_latency: Histogram::new(),
             config,
         })
     }
@@ -230,6 +237,9 @@ impl Core {
                     let key = this.rel(&path);
                     match outcome {
                         Ok(res) => {
+                            if res.outcome != crate::pool::WarmOutcome::Skipped {
+                                this.warm_latency.observe(elapsed);
+                            }
                             if res.outcome == crate::pool::WarmOutcome::Warmed {
                                 let mut stats = this.stats.lock().expect("stats poisoned");
                                 stats.warms += 1;
@@ -372,7 +382,12 @@ impl Core {
         let mut hit = 0;
         let mut bytes = 0u64;
         for p in paths {
+            let started = Instant::now();
             if let Ok(res) = self.pool.lock().expect("pool poisoned").warm(p) {
+                if res.outcome != crate::pool::WarmOutcome::Skipped {
+                    self.warm_latency
+                        .observe(started.elapsed().as_secs_f64() * 1000.0);
+                }
                 match res.outcome {
                     crate::pool::WarmOutcome::Hit => hit += 1,
                     crate::pool::WarmOutcome::Warmed => {
@@ -384,6 +399,19 @@ impl Core {
             }
         }
         json!({"warmed": warmed, "hits": hit, "bytes": bytes})
+    }
+
+    /// Observe one proxied RAG query latency (milliseconds).
+    pub fn observe_rag_latency(&self, latency_ms: f64) {
+        self.rag_latency.observe(latency_ms);
+    }
+
+    pub fn warm_latency_snapshot(&self) -> HistogramSnapshot {
+        self.warm_latency.snapshot()
+    }
+
+    pub fn rag_latency_snapshot(&self) -> HistogramSnapshot {
+        self.rag_latency.snapshot()
     }
 
     pub fn predict(&self, current: &Path, k: usize) -> Value {

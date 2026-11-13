@@ -39,7 +39,9 @@ FSEvents / mext open ──▶ PredictorEngine (Markov + EMA + время сут
 | **RAG** | LanceDB 0.41, IVF_PQ, mmap-центроиды | индексация 20 000 чанков на диск, прогрев кластеров по префиксу запроса, замер `prefetch_hit` |
 | **MoE pager** | MLX router + top-k, `PagedSwitchGLU`, эксперты fp16/4-bit на SSD | реальные `mlx_lm` MoE-чекпоинты (`SwitchGLU` → `PagedSwitchGLU`), численно равно резидентной модели, кэш экспертов ограничен бюджетом, router-guided префетч |
 | **Оркестратор** | Rust `tokio` + `axum`, JSON-RPC 2.0 по UDS | `mext start/status/open/predict/warm/bench/index/query/doctor/stop`, профили по воркспейсам |
-| **Наблюдаемость** | SSE `/api/stream`, Prometheus `/metrics` | дашборд без polling (EventSource с fallback), 40+ метрик в текстовой экспозиции для Grafana |
+| **Наблюдаемость** | SSE `/api/stream`, Prometheus `/metrics`, latency-гистограммы | дашборд без polling, 45+ метрик, p50/p95 прогрева и RAG-запросов; готовый Grafana-дашборд |
+| **GGUF** | mmap-парсер v1–v3, layer-warmer | чтение метаданных/таблицы тензоров без загрузки весов, группировка по слоям, `MADV_WILLNEED`-прогрев выбранных слоёв для llama.cpp-чекпоинтов |
+| **Dev-инструменты** | `make dev/review/ci`, launchd, GitHub Actions | watch-цикл пересборки, один прогон всех проверок, установка пользовательского сервиса, CI на macos-14 |
 
 ---
 
@@ -126,7 +128,10 @@ make run-ai RAM=4G                      # с реальным id модели (M
 | `mext index DIR` | перестроить LanceDB-индекс (Python-движок) |
 | `mext query "..."` | запрос к RAG из терминала |
 | `mext doctor` | диагностика окружения |
+| `mext profiles [list/show/merge]` | профили предиктора: список, статистика, слияние в один |
 | `mext stop` | мягко остановить демон (сохраняет предиктор) |
+| `.venv/bin/mext-ai gguf inspect FILE` | метаданные/тензоры/слои GGUF без загрузки весов |
+| `.venv/bin/mext-ai gguf warm FILE --layers 0,1` | прогрев страниц выбранных слоёв (`MADV_WILLNEED`) |
 
 Флаги `start`: `--no-ai`, `--no-neural`, `--no-rag`, `--demo`, `--moe`
 (router-guided эксперты в демо-модели), `--trace-open[=backend]`, `--port`,
@@ -225,12 +230,42 @@ score(next | current) = 0.72 · P(next | current)      # цепь Маркова
   выполняется поиск с `where cluster IN (...)`; `prefetch_hit` = доля
   результатов, чьи кластеры уже были прогреты.
 
+### 4a. GGUF: метаданные и прогрев страниц
+
+`ai-engine/mext_ai/gguf/` — это мост к llama.cpp-чекпоинтам, а не второй рантайм:
+
+* **reader** парсит GGUF v1/v2/v3 через `mmap`, не загружая веса: заголовок,
+  полный KV-набор (включая вложенные массивы), выравнивание
+  `general.alignment`, таблицу тензоров. Смещения тензоров трактуются по
+  спецификации — относительно начала секции данных, абсолютный диапазон
+  считается как `data_offset + offset`.
+* Размеры считаются по GGML-блокам: F32/F16/BF16, `Q4_0…Q8_0`, `Q2_K…Q8_K`,
+  IQ-типы best-effort; неизвестные типы перечисляются, но не ломают разбор.
+* Тензоры группируются по `blk.N`, отдельно собираются expert-банки
+  (`*_exps`).
+* **warmer** прогревает страницы выбранных слоёв: `mmap.madvise(MADV_WILLNEED)`
+  плюс по-чанковые касания, возвращает байты/мс/МБ/с. `predict_next()` — это
+  секвенциальный lookahead плюс недавно использованные слои (модель читает слои
+  по порядку, поэтому предиктор здесь почти оракульный).
+
+```bash
+.venv/bin/mext-ai gguf inspect ~/models/qwen2.5-7b-q4_k_m.gguf
+.venv/bin/mext-ai gguf warm ~/models/qwen2.5-7b-q4_k_m.gguf --layers 0,1,2 --lookahead 2
+```
+
+RPC: `gguf.inspect {path}` и `gguf.warm {path, layers, lookahead}`. Это позволяет
+внешнему раннеру (llama.cpp) дёргать прогрев через `~/.mext/ai.sock` до чтения
+слоя. Ограничение: сам инференс GGUF не реализован — веса не декодируются.
+
 ### 4b. Профили предиктора
 
 Граф переходов и часовой профиль хранятся **на воркспейс**:
 `~/.mext/profiles/<slug>/predictor.json`, где slug — имя каталога плюс короткий
 хэш пути. Проекты не портят статистику друг другу; `MEXT_PROFILE=name`
-переопределяет профиль (удобно для общих датасетов).
+переопределяет профиль (удобно для общих датасетов). Натренированные сессии
+можно переносить: `mext profiles list`, `mext profiles show <name>`,
+`mext profiles merge --into new-project --weight 0.35` (без `--keep` источники
+удаляются, веса и счётчики складываются с коэффициентом).
 
 ### 5. Оркестратор и дашборд
 
@@ -253,6 +288,10 @@ curl -s localhost:8765/metrics | grep -E 'mext_pool|mext_predictor|mext_neural'
 
 Если поток SSE режется прокси или нужен детерминированный скриншот, откройте
 дашборд как `http://localhost:8765/?poll=1` — JS переключится на обычный polling.
+
+**Гистограммы latency.** `/metrics` отдаёт полноценные Prometheus-гистограммы
+`mext_pool_warm_latency_ms` и `mext_rag_query_latency_ms` (`_bucket/_sum/_count`,
+бакеты 0.5 мс … 10 с). В Grafana есть панель p95 через `histogram_quantile`.
 
 **Grafana.** Готовый дашборд лежит в `docs/grafana/mext-dashboard.json`
 (16 панелей: пул физика/виртуалка, hit rate, pressure, SSD MB/s, neural
@@ -344,12 +383,34 @@ sysctl -n kern.memorystatus_vm_pressure_level     # 1 green / 2 yellow / 4 red
 
 ---
 
+## Ускорение разработки
+
+```bash
+make dev                 # watch: пересборка + рестарт debug-демона на каждую правку
+make dev-once            # только debug-сборка
+make review              # release build + cargo test + pytest + node --check + selftest
+make ci                  # те же проверки, что в GitHub Actions, без демона
+make service-install     # launchd user service (release bin, авто-рестарт, лог)
+make service-status      # launchctl print
+make service-uninstall
+bash scripts/install-service.sh --dry-run   # посмотреть plist, ничего не записывая
+```
+
+`scripts/dev.sh` использует `cargo-watch`, если он установлен, иначе — debounced
+mtime-цикл; при Ctrl-C демон останавливается и сокет не остаётся висеть. Сервис
+ставится в `~/Library/LaunchAgents/com.mext.daemon.plist` с `KeepAlive` и логом
+`$MEXT_HOME/service.log`.
+
+CI (`.github/workflows/ci.yml`) гоняет на `macos-14`: `cargo fmt --check`,
+`cargo test`, `pytest`, `node --check`, `mext-ai selftest` (если MLX доступен),
+с кэшем cargo/pip и загрузкой `~/.mext/mext.log` при падении.
+
 ## Тесты
 
 ```bash
 make test          # всё сразу
-make test-rust     # 42 теста
-make test-py       # 37 тестов
+make test-rust     # 63 теста
+make test-py       # 54 теста
 make selftest      # MLX forward + LanceDB + префетч
 make e2e           # живой демон: CLI + HTTP (без AI, быстро)
 make e2e-ai        # то же + MLX и LanceDB
@@ -357,12 +418,14 @@ make e2e-ai        # то же + MLX и LanceDB
 
 Покрыто:
 
-* **Rust (55):** парсинг размеров/swap, `vm_stat`, `madvise` на своих маппингах,
+* **Rust (63):** парсинг размеров/swap, `vm_stat`, `madvise` на своих маппингах,
   ARC (вытеснение, ghost-адаптация `p`, update/shrink/drain), LZ4-пул (hit/miss,
   случайное чтение, жёсткий бюджет, `released_bytes > 0`, пропуск больших файлов),
   предиктор (Марков, время суток, hit rate, сохранение), FSEvents-наблюдатель,
-  JSON-RPC по UDS, снимок ядра, IPC-команды.
-* **Python (46):** JSON-RPC сервер/клиент (ошибки, конкурентные клиенты), контроллер
+  JSON-RPC по UDS, снимок ядра, IPC-команды, **гистограммы latency**
+  (бакеты/кумулятивность/NaN), **слияние профилей** (веса, счётчики, границы),
+  листинг профилей с пропуском битых файлов.
+* **Python (54):** JSON-RPC сервер/клиент (ошибки, конкурентные клиенты), контроллер
   памяти (рост/сжатие/min), классификация весов, cold store (бюджет, pin,
   фоновый префетч, индекс), MLX-раннер (генерация, рост prefetch-hit, тюнинг кэша),
   LanceDB (индексация, инкрементальность, поиск, кластеры, `prefetch_hit`), движок
@@ -371,15 +434,17 @@ make e2e-ai        # то же + MLX и LanceDB
   **арена** (упаковка, refcount-освобождение страниц), **MoE** (эквивалентность
   плотному эталону, ограничение кэша экспертов, router-guided префетч),
   **paged SwitchGLU** (fp16 и 4-bit эксперты, tiny Mixtral end-to-end,
-  router-guided lookahead между слоями).
+  router-guided lookahead между слоями), **GGUF** (синтетический файл v3:
+  метаданные, выравнивание, размеры Q4_0, слои, эксперты, warmer, CLI, RPC,
+  отказ на мусоре).
 * **Grafana-модель (1):** JSON парсится, у каждой панели есть Prometheus-запрос
   с метрикой `mext_*`, покрыты все три слоя и pressure.
 * **E2E (`make e2e` / `make e2e-ai`):** поднимает настоящий демон на временном
   воркспейсе и проверяет CLI (`open/predict/warm/status/stop`) и HTTP
   (`health/snapshot/observe/predict/prefetch/budget/rag/neural/stream/metrics`) —
   включая жёсткость бюджета, деградацию AI-эндпоинтов без движка, SSE-кадр,
-  Prometheus-экспозицию, MoE-метрики, отсутствие паник и сохранение
-  `predictor.json` при выходе.
+  Prometheus-экспозицию (включая `_bucket/_sum/_count`), MoE-метрики,
+  отсутствие паник, сохранение `predictor.json` и листинг профилей после выхода.
 * **Синтаксис JS/HTML:** `node --check dashboard/app.js`.
 
 Проверка вручную, без pytest:
@@ -423,7 +488,10 @@ python3 -m mext_ai selftest      # или .venv/bin/mext-ai selftest
   Проверено на крошечной Mixtral: логиты обёрнутой модели совпадают с
   резидентной (`max|Δ| < 1e-4`), роутеры остаются в памяти. Демо синтетической
   MoE — `mext start --moe`.
-* **GGUF / llama.cpp** не поддерживается: другой рантайм.
+* **GGUF.** Метаданные, таблица тензоров и прогрев страниц слоёв
+  поддерживаются (`mext-ai gguf ...`, RPC `gguf.*`). Сам инференс GGUF не
+  реализован — для генерации остаётся llama.cpp, MEXT выступает прогревщиком
+  его страниц.
 
 ## Ограничения, о которых лучше знать заранее
 
@@ -458,6 +526,9 @@ python3 -m mext_ai selftest      # или .venv/bin/mext-ai selftest
 | `mext open` пишет `not watched` | файл вне воркспейса, скрытый или неизвестное расширение |
 | порт занят | `--port 8790` |
 | RAG долго строит индекс | ограничения `max_chunks=20000`, `400k` символов на файл |
+| `profiles merge` удалил источники | так задумано; используйте `--keep` |
+| `gguf inspect` ругается на версию | поддерживаются v1–v3; конвертируйте чекпоинт |
+| сервис не стартует | `bash scripts/install-service.sh --dry-run` и лог `$MEXT_HOME/service.log` |
 
 ---
 
@@ -478,6 +549,7 @@ ultraram/
 │       ├── bridge.rs             клиент к Python по UDS
 │       ├── ipc.rs                JSON-RPC 2.0 по Unix-сокету
 │       ├── dashboard.rs          axum + встроенные ассеты
+│       ├── histogram.rs          latency-гистограммы для /metrics
 │       ├── bench.rs, demo.rs     бенчмарк и генератор активности
 │       ├── run.rs                демон: надзор, запуск AI, баннер
 │       └── bin/{mext,mextd}.rs   CLI и демон-обёртка
@@ -493,13 +565,17 @@ ultraram/
 │       ├── rag/embed.py          hashing-эмбеддинг (384D)
 │       ├── rag/index.py          LanceDB, IVF_PQ, кластеры, mmap-центроиды
 │       ├── rag/prefetcher.py     StreamingQueryPrefetcher
+│       ├── gguf/                 GGUF reader + layer page warmer
 │       ├── memory.py             psutil/Metal профиль + AdaptiveCacheController
 │       ├── ipc.py                JSON-RPC сервер/клиент
 │       ├── engine.py             сборка движка и RPC-методы
-│       └── cli.py                serve/index/query/selftest/prepare
+│       └── cli.py                serve/index/query/gguf/selftest/prepare
 ├── dashboard/                    index.html · style.css · app.js (без сборки)
 ├── scripts/bench.sh              офлайн + живой бенчмарк, снижение cap
 ├── scripts/e2e.sh                end-to-end: демон + CLI + HTTP + SSE/metrics
+├── scripts/dev.sh                watch-цикл пересборки и рестарта
+├── scripts/install-service.sh    launchd user service
+├── .github/workflows/ci.yml      CI на macos-14
 ├── docs/dashboard.png            скриншот живого запуска
 ├── docs/grafana/                 Grafana-дашборд + инструкция по импорту
 ├── Makefile · setup.sh
@@ -509,6 +585,6 @@ ultraram/
 ## Roadmap
 
 * Нативный EndpointSecurity-клиент (нужен Apple entitlement) вместо shell-out.
-* Общий граф предиктора между профилями с весами по проектам.
-* Гистограммы latency в Prometheus (сейчас gauge’и).
-* Мост к GGUF/llama.cpp.
+* Интеграция GGUF-warmer с запущенным llama.cpp (сейчас RPC/CLI для внешнего раннера).
+* Автоматический выбор веса слияния профилей по похожести путей.
+* Гистограммы размера кадра и cache-hit по типам файлов.

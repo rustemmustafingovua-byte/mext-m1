@@ -6,6 +6,7 @@
 //!                   `madvise(MADV_DONTNEED)` is legal and returns pages to XNU.
 //! * [`arc`]       — byte-capacity ARC (Adaptive Replacement Cache).
 //! * [`arena`]     — refcounted page-packing arena for small compressed frames.
+//! * [`histogram`] — fixed-bucket latency histograms for Prometheus.
 //! * [`pool`]      — LZ4 compressed RAM pool backed by ARC + madvise eviction.
 //! * [`predictor`] — Markov transition graph + EMA frequency + hour-of-day model.
 //! * [`monitor`]   — FSEvents watcher (`notify`) and optional `fs_usage` tracer.
@@ -21,6 +22,7 @@ pub mod config;
 pub mod core;
 pub mod dashboard;
 pub mod demo;
+pub mod histogram;
 pub mod ipc;
 pub mod memmap;
 pub mod metrics;

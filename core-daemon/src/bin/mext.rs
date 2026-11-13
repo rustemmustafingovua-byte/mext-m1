@@ -3,9 +3,10 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use mext_core::bench::{self, BenchOptions};
-use mext_core::config::{human_bytes, parse_size, Config};
+use mext_core::config::{human_bytes, normalize_profile_name, parse_size, Config};
 use mext_core::ipc::RpcClient;
 use mext_core::platform::{memory_info, memory_pressure, swap_usage};
+use mext_core::predictor::Predictor;
 use mext_core::run::{self, StartArgs};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -95,6 +96,36 @@ enum Cmd {
     Stop {
         #[arg(long)]
         socket: Option<PathBuf>,
+    },
+    /// Inspect and merge per-workspace predictor profiles (no daemon needed).
+    Profiles {
+        #[command(subcommand)]
+        action: Option<ProfilesCmd>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfilesCmd {
+    /// List learned profiles, newest first (default when no action is given).
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the statistics of one profile.
+    Show {
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Merge every other profile into <into>, scaling their evidence by weight.
+    Merge {
+        #[arg(long)]
+        into: String,
+        #[arg(long, default_value_t = 0.35)]
+        weight: f32,
+        /// Keep the source profiles on disk.
+        #[arg(long)]
+        keep: bool,
     },
 }
 
@@ -274,12 +305,154 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Doctor { json } => doctor(json),
+        Cmd::Profiles { action } => profiles_command(action),
         Cmd::Stop { socket } => {
             let resp = client(socket).call("shutdown", json!({}))?;
             println!("{}", serde_json::to_string(&resp)?);
             Ok(())
         }
     }
+}
+
+fn profiles_config() -> Result<Config> {
+    Config::new(".", 2 << 30)
+}
+
+fn profiles_command(action: Option<ProfilesCmd>) -> Result<()> {
+    let config = profiles_config()?;
+    match action.unwrap_or(ProfilesCmd::List { json: false }) {
+        ProfilesCmd::List { json } => profiles_list(&config, json),
+        ProfilesCmd::Show { name, json } => profiles_show(&config, &name, json),
+        ProfilesCmd::Merge { into, weight, keep } => profiles_merge(&config, &into, weight, keep),
+    }
+}
+
+fn profiles_list(config: &Config, json: bool) -> Result<()> {
+    let profiles = config.list_profiles();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&profiles)?);
+        return Ok(());
+    }
+    if profiles.is_empty() {
+        println!(
+            "no profiles yet · they appear under {} after `mext start`",
+            config.profiles_dir().display()
+        );
+        return Ok(());
+    }
+    println!(
+        "  {:<28} {:>7} {:>7} {:>8} {:>9}  modified",
+        "profile", "obs", "edges", "hit %", "size"
+    );
+    for profile in profiles {
+        let modified = if profile.modified_ms == 0 {
+            "-".to_string()
+        } else {
+            format!(
+                "{}s ago",
+                (mext_core::metrics::unix_now() * 1000.0 - profile.modified_ms as f64).max(0.0)
+                    as u64
+                    / 1000
+            )
+        };
+        println!(
+            "  {:<28} {:>7} {:>7} {:>7.1}% {:>9}  {}",
+            profile.name,
+            profile.observations,
+            profile.edges,
+            profile.hit_rate * 100.0,
+            human_bytes(profile.bytes),
+            modified
+        );
+    }
+    Ok(())
+}
+
+fn profiles_show(config: &Config, name: &str, json: bool) -> Result<()> {
+    let predictor = config
+        .load_profile(name)
+        .with_context(|| format!("profile `{name}` not found (try `mext profiles list`)"))?;
+    let stats = predictor.stats();
+    if json {
+        let value = json!({
+            "name": normalize_profile_name(name),
+            "stats": stats,
+            "edges": predictor.edge_count(),
+            "nodes": predictor.node_count(),
+        });
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+    println!("profile {}", normalize_profile_name(name));
+    println!("  observations  {}", predictor.observations());
+    println!("  transitions   {}", predictor.transitions);
+    println!(
+        "  predictions   {} hits / {} scored ({:.1}%)",
+        predictor.hits,
+        predictor.attempts,
+        predictor.hit_rate() * 100.0
+    );
+    println!(
+        "  graph         {} edges · {} nodes",
+        predictor.edge_count(),
+        predictor.node_count()
+    );
+    Ok(())
+}
+
+fn profiles_merge(config: &Config, into: &str, weight: f32, keep: bool) -> Result<()> {
+    if !weight.is_finite() || !(0.0..=10.0).contains(&weight) {
+        bail!("--weight must be a finite number between 0 and 10 (got {weight})");
+    }
+    let target_name = normalize_profile_name(into);
+    if target_name.is_empty() {
+        bail!("invalid profile name: {into:?}");
+    }
+
+    let mut target = config
+        .load_profile(&target_name)
+        .unwrap_or_else(|_| Predictor::default());
+    let before = (
+        target.transitions,
+        target.observations(),
+        target.edge_count(),
+    );
+    let mut merged = 0usize;
+    let mut removed = 0usize;
+
+    for profile in config.list_profiles() {
+        if profile.name == target_name {
+            continue;
+        }
+        let other = match config.load_profile(&profile.name) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!(
+                    "[mext] skipping unreadable profile {}: {error}",
+                    profile.name
+                );
+                continue;
+            }
+        };
+        target.merge_from(&other, weight);
+        merged += 1;
+        if !keep && std::fs::remove_dir_all(config.profiles_dir().join(&profile.name)).is_ok() {
+            removed += 1;
+        }
+    }
+
+    config.save_profile(&target_name, &target)?;
+    println!("merged {merged} profile(s) into `{target_name}` (source weight {weight:.2})");
+    println!("  transitions   {} → {}", before.0, target.transitions);
+    println!("  observations  {} → {}", before.1, target.observations());
+    println!("  edges         {} → {}", before.2, target.edge_count());
+    if removed > 0 {
+        println!("  removed {removed} source profile(s); pass --keep to retain them");
+    }
+    if merged == 0 {
+        println!("  (no other profiles found — target saved as-is)");
+    }
+    Ok(())
 }
 
 fn client(socket: Option<PathBuf>) -> RpcClient {

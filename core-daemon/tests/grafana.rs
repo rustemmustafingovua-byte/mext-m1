@@ -49,6 +49,8 @@ fn dashboard_json_is_valid_and_wired_to_prometheus() {
         "mext_pressure_info",
         "mext_neural_expert_hit_rate",
         "mext_rag_prefetch_hit_rate",
+        "mext_pool_warm_latency_ms_bucket",
+        "mext_rag_query_latency_ms_bucket",
     ] {
         assert!(text.contains(needle), "dashboard misses {needle}");
     }

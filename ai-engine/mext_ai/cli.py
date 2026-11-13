@@ -69,7 +69,104 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--model", default="mlx-community/Qwen2.5-Coder-7B-Instruct-4bit")
     prepare.add_argument("--state-dir", default=str(DEFAULT_STATE))
 
+    gguf = sub.add_parser("gguf", help="parse/inspect GGUF checkpoints and warm layer pages")
+    gguf_sub = gguf.add_subparsers(dest="gguf_cmd", required=True)
+
+    gguf_inspect = gguf_sub.add_parser("inspect", help="parse header/metadata/tensor table without loading weights")
+    gguf_inspect.add_argument("file")
+    gguf_inspect.add_argument("--json", action="store_true")
+
+    gguf_warm = gguf_sub.add_parser("warm", help="page in the weights of selected transformer layers")
+    gguf_warm.add_argument("file")
+    gguf_warm.add_argument("--layers", default="0,1,2", help="comma-separated layer indices")
+    gguf_warm.add_argument("--lookahead", type=int, default=2)
+    gguf_warm.add_argument("--json", action="store_true")
+
     return parser
+
+
+def _format_bytes(value: int) -> str:
+    size = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+        size /= 1024
+    return f"{value} B"
+
+
+def _parse_layer_list(raw: str) -> list[int]:
+    layers: list[int] = []
+    for part in str(raw).replace(" ", "").split(","):
+        if not part:
+            continue
+        if "-" in part:
+            start, end = part.split("-", 1)
+            layers.extend(range(int(start), int(end) + 1))
+        else:
+            layers.append(int(part))
+    if not layers:
+        raise ValueError("no layers given (example: --layers 0,1,2)")
+    return sorted(dict.fromkeys(layers))
+
+
+def cmd_gguf_inspect(args: argparse.Namespace) -> int:
+    from .gguf import GgufFile
+
+    with GgufFile.open(args.file) as gguf:
+        summary = gguf.summary()
+
+    if args.json:
+        print(json.dumps(summary, indent=2, default=str))
+        return 0
+
+    print(f"GGUF {summary['path']}")
+    print(f"  version        {summary['version']}")
+    print(f"  tensors        {summary['tensor_count']}")
+    print(f"  kv pairs       {summary['kv_count']}")
+    print(f"  size           {_format_bytes(summary['total_bytes'])}")
+    print(f"  header         {_format_bytes(summary['header_bytes'])} · padding {summary['padding']} B")
+    print(f"  data offset    {summary['data_offset']} (alignment {summary['alignment']})")
+    print(f"  layers         {summary['layer_count']}")
+    if summary["expert_tensors"]:
+        print(f"  expert tensors {len(summary['expert_tensors'])}")
+    types = ", ".join(f"{name}×{count}" for name, count in sorted(summary["type_histogram"].items()))
+    print(f"  types          {types}")
+    meta = summary.get("metadata", {})
+    for key in list(meta)[:8]:
+        value = meta[key]
+        text = str(value)
+        if len(text) > 64:
+            text = text[:61] + "…"
+        print(f"  {key:<24} {text}")
+    return 0
+
+
+def cmd_gguf_warm(args: argparse.Namespace) -> int:
+    from .gguf import GgufFile, LayerPageWarmer
+
+    layers = _parse_layer_list(args.layers)
+    with GgufFile.open(args.file) as gguf:
+        warmer = LayerPageWarmer(gguf, lookahead=args.lookahead)
+        result = warmer.warm_layers(layers)
+        result["predict_next"] = warmer.predict_next()
+        result["stats"] = warmer.stats()
+        result["layers_total"] = len(gguf.layers)
+
+    if args.json:
+        print(json.dumps(result, indent=2, default=str))
+        return 0
+
+    print(f"warmed layers {result['layers']} of {result['layers_total']}")
+    print(f"  touched        {_format_bytes(result['bytes'])} in {result['chunks']} chunks")
+    print(f"  time           {result['ms']:.2f} ms · {result['MBps']:.1f} MB/s")
+    print(f"  predict next   {result['predict_next']}")
+    stats = result["stats"]
+    print(
+        f"  session        {stats.get('layers_warmed', 0)} layers · "
+        f"{_format_bytes(stats.get('total_bytes', 0))} · "
+        f"{stats.get('MBps', 0.0):.1f} MB/s"
+    )
+    return 0
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -302,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_index(args)
     if args.cmd == "query":
         return cmd_query(args)
+    if args.cmd == "gguf":
+        return cmd_gguf_inspect(args) if args.gguf_cmd == "inspect" else cmd_gguf_warm(args)
     if args.cmd == "selftest":
         return cmd_selftest(args)
     if args.cmd == "prepare":
