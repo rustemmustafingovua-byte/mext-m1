@@ -1,0 +1,14 @@
+name: Runner smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "linux ok" && uname -a
+  macos:
+    runs-on: macos-14
+    steps:
+      - run: echo "macos ok" && uname -a
