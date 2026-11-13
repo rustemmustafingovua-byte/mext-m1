@@ -31,12 +31,15 @@ fi
 
 NAME="mext-m1-${VERSION}-aarch64-apple-darwin"
 BASE="https://github.com/${REPO}/releases/download/${VERSION}"
+# Release assets are fronted by a CDN; after a re-upload the plain URL can keep
+# serving the previous checksum for a while. A query string is a safe cache key.
+BUST="?t=$(date +%s)"
 TMP="$(mktemp -d -t mext-install)"
 trap 'rm -rf "$TMP"' EXIT
 
 say "downloading ${NAME}.tar.gz"
-curl -fsSL "${BASE}/${NAME}.tar.gz" -o "${TMP}/${NAME}.tar.gz"
-curl -fsSL "${BASE}/${NAME}.tar.gz.sha256" -o "${TMP}/${NAME}.tar.gz.sha256" \
+curl -fsSL "${BASE}/${NAME}.tar.gz${BUST}" -o "${TMP}/${NAME}.tar.gz"
+curl -fsSL "${BASE}/${NAME}.tar.gz.sha256${BUST}" -o "${TMP}/${NAME}.tar.gz.sha256" \
   || die "checksum file is missing"
 
 say "verifying checksum"

@@ -8,7 +8,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${BIN:-$ROOT/core-daemon/target/release/mext}"
-PY="${PY:-$ROOT/.venv/bin/python}"
+if [[ -z "${PY:-}" ]]; then
+  if [[ -x "$ROOT/.venv/bin/python" ]]; then
+    PY="$ROOT/.venv/bin/python"
+  else
+    PY="$(command -v python3 || command -v python || true)"
+  fi
+fi
+[[ -n "${PY:-}" ]] || { echo "python3 is required for the HTTP checks" >&2; exit 2; }
 PORT="${PORT:-8899}"
 WITH_AI=0
 [[ "${1:-}" == "--with-ai" ]] && WITH_AI=1
