@@ -1,0 +1,37 @@
+[package]
+name = "mext-core"
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.75"
+description = "MEXT-M1 — predictive memory tiering for Apple Silicon (userspace AMD-MEXT analogue)"
+license = "MIT"
+
+[lib]
+name = "mext_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mext"
+path = "src/bin/mext.rs"
+
+[[bin]]
+name = "mextd"
+path = "src/bin/mextd.rs"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+libc = "0.2"
+lz4_flex = "0.14"
+notify = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "io-util", "fs"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

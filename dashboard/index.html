@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MEXT-M1 · Predictive Memory Tiering</title>
+<link rel="icon" href="/favicon.svg" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="shell">
+
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M7 22V10l5 7 4-7 4 7 5-7v12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div>
+        <h1>MEXT<span>-M1</span></h1>
+        <p class="sub">predictive memory tiering · SSD → compressed RAM → unified memory</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="pill" id="pressure-pill"><i class="dot"></i><span id="pressure-text">pressure —</span></div>
+      <div class="pill ghost" id="ai-pill"><i class="dot"></i><span id="ai-text">ai —</span></div>
+      <div class="meta">
+        <span id="workspace" class="mono">—</span>
+        <span id="uptime" class="dim">up —</span>
+      </div>
+    </div>
+  </header>
+
+  <section class="kpis">
+    <article class="card">
+      <div class="card-head"><span>RAM pool</span><span class="chip" id="pool-budget">cap —</span></div>
+      <div class="value"><b id="pool-resident">—</b><small id="pool-ratio">—</small></div>
+      <div class="bar"><i id="pool-bar"></i></div>
+      <div class="card-foot"><span id="pool-files">— files</span><span id="pool-evict">— evictions</span></div>
+    </article>
+
+    <article class="card">
+      <div class="card-head"><span>MEXT virtual volume</span><span class="chip amber">compressed</span></div>
+      <div class="value"><b id="virtual-bytes">—</b><small id="virtual-saved">saved —</small></div>
+      <div class="bar amber"><i id="virtual-bar"></i></div>
+      <div class="card-foot"><span id="virtual-decomp">— decompressions</span><span id="virtual-released">— released</span></div>
+    </article>
+
+    <article class="card">
+      <div class="card-head"><span>Prediction hit rate</span><span class="chip green">online</span></div>
+      <div class="value"><b id="hit-rate">—</b><small id="hit-count">— / —</small></div>
+      <div class="bar green"><i id="hit-bar"></i></div>
+      <div class="card-foot"><span id="hit-edges">— edges</span><span id="hit-obs">— observations</span></div>
+    </article>
+
+    <article class="card">
+      <div class="card-head"><span>SSD streaming</span><span class="chip sky">NVMe</span></div>
+      <div class="value"><b id="ssd-mbps">—</b><small id="ssd-warm">warm — ms</small></div>
+      <div class="bar sky"><i id="ssd-bar"></i></div>
+      <div class="card-foot"><span id="ssd-warms">— warms</span><span id="swap-used">swap —</span></div>
+    </article>
+  </section>
+
+  <section class="grid">
+    <article class="panel span-2 chart-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Physical RAM vs MEXT virtual volume</h2>
+          <p class="hint" id="ram-hint">stacked physical composition · dashed = data volume MEXT can serve</p>
+        </div>
+        <div class="legend">
+          <span><i style="background:#34d399"></i>MEXT pool</span>
+          <span><i style="background:#60a5fa"></i>app</span>
+          <span><i style="background:#a78bfa"></i>wired</span>
+          <span><i style="background:#f472b6"></i>compressor</span>
+          <span><i class="dash" style="border-color:#fbbf24"></i>virtual</span>
+        </div>
+      </div>
+      <div class="canvas-wrap"><canvas id="ram-chart"></canvas><div class="tip" id="ram-tip"></div></div>
+    </article>
+
+    <article class="panel chart-panel">
+      <div class="panel-head">
+        <div>
+          <h2>Prefetcher accuracy</h2>
+          <p class="hint">share of predictions that were actually opened next</p>
+        </div>
+        <span class="chip green" id="hit-chip">—%</span>
+      </div>
+      <div class="canvas-wrap"><canvas id="hit-chart"></canvas></div>
+    </article>
+
+    <article class="panel span-2 chart-panel">
+      <div class="panel-head">
+        <div>
+          <h2>SSD → RAM transfer</h2>
+          <p class="hint">LZ4 warm throughput · pressure-driven budget shrinking keeps macOS out of the red</p>
+        </div>
+        <div class="legend"><span><i style="background:#38bdf8"></i>MB/s from SSD</span></div>
+      </div>
+      <div class="canvas-wrap"><canvas id="ssd-chart"></canvas></div>
+    </article>
+
+    <div class="side">
+      <article class="panel">
+        <div class="panel-head">
+          <div><h2>Neural layer loader</h2><p class="hint">MLX · hot weights in unified memory, cold on SSD</p></div>
+          <span class="chip" id="neural-chip">—</span>
+        </div>
+        <div class="kv" id="neural-body">
+          <div><span>model</span><b id="n-model" class="mono">—</b></div>
+          <div><span>hot weights</span><b id="n-hot">—</b></div>
+          <div><span>cold weights</span><b id="n-cold">—</b></div>
+          <div><span>resident</span><b id="n-resident">—</b></div>
+          <div><span>streamed</span><b id="n-streamed">—</b></div>
+          <div><span>prefetch hit</span><b id="n-prefetch">—</b></div>
+          <div><span>throughput</span><b id="n-tps">—</b></div>
+          <div><span>lookahead</span><b id="n-lookahead">—</b></div>
+        </div>
+        <div class="bar green"><i id="n-bar"></i></div>
+        <p class="fine" id="n-note">waiting for the AI engine…</p>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div><h2>Zero-RAM RAG</h2><p class="hint">type a query — clusters warm before you hit Enter</p></div>
+          <span class="chip sky" id="rag-chip">—</span>
+        </div>
+        <div class="rag-input">
+          <input id="rag-input" type="text" placeholder="search the workspace…" autocomplete="off" spellcheck="false" />
+          <span class="ray" id="rag-ray">idle</span>
+        </div>
+        <div class="kv compact">
+          <div><span>chunks</span><b id="r-chunks">—</b></div>
+          <div><span>clusters</span><b id="r-clusters">—</b></div>
+          <div><span>prefetch</span><b id="r-hit">—</b></div>
+          <div><span>latency</span><b id="r-lat">—</b></div>
+        </div>
+        <ul class="results" id="rag-results"></ul>
+      </article>
+    </div>
+  </section>
+
+  <section class="grid lower">
+    <article class="panel span-2">
+      <div class="panel-head">
+        <div><h2>Activity</h2><p class="hint">FSEvents · predictions · warm · evictions</p></div>
+        <span class="chip" id="event-count">—</span>
+      </div>
+      <ul class="feed" id="feed"></ul>
+    </article>
+
+    <article class="panel">
+      <div class="panel-head">
+        <div><h2>Pool contents</h2><p class="hint">LZ4 frames resident right now</p></div>
+        <span class="chip" id="pool-saved">—</span>
+      </div>
+      <ul class="pool-list" id="pool-list"></ul>
+    </article>
+  </section>
+
+  <footer>
+    <span class="mono">http://localhost:8765</span>
+    <span class="dim" id="footer-note">MEXT-M1 · one CLI, three predictive layers</span>
+    <span class="mono dim" id="version">v—</span>
+  </footer>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

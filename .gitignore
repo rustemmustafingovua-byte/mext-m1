@@ -1,0 +1,20 @@
+# Rust
+core-daemon/target/
+**/*.rs.bk
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+ai-engine/build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# MEXT runtime state
+.mext/
+*.sock
+
+# OS
+.DS_Store

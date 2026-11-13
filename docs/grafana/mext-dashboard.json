@@ -1,0 +1,374 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "tags": [],
+      "targetBlank": true,
+      "title": "MEXT-M1 dashboard (local)",
+      "type": "link",
+      "url": "http://localhost:8765"
+    }
+  ],
+  "liveNow": true,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "RAM pool: physical vs virtual volume",
+      "description": "mext_pool_resident_bytes is real RSS (arena pages + dedicated mappings); mext_pool_logical_bytes is the uncompressed volume served from it.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 14, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "refId": "A", "expr": "mext_pool_resident_bytes", "legendFormat": "physical (resident)" },
+        { "refId": "B", "expr": "mext_pool_logical_bytes", "legendFormat": "virtual (uncompressed)" },
+        { "refId": "C", "expr": "mext_pool_budget_bytes", "legendFormat": "hard budget", "dashStyle": "dash" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Prediction hit rate",
+      "description": "Share of predictions that were actually the next file. Target: > 60%.",
+      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 40 },
+              { "color": "green", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto"
+      },
+      "targets": [
+        { "refId": "A", "expr": "mext_predictor_hit_rate * 100", "legendFormat": "hit rate" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "macOS memory pressure",
+      "description": "kern.memorystatus_vm_pressure_level mapped to green/yellow/red.",
+      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "green": { "color": "green", "index": 0 },
+                "yellow": { "color": "orange", "index": 1 },
+                "red": { "color": "red", "index": 2 }
+              }
+            }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        { "refId": "A", "expr": "mext_pressure_info", "legendFormat": "{{level}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "SSD → RAM transfer (MB/s)",
+      "description": "LZ4 pool warm throughput and neural weight streaming.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "MBs",
+          "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 18, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        { "refId": "A", "expr": "rate(mext_pool_ssd_read_bytes_total[1m]) / 1e6", "legendFormat": "file pool" },
+        { "refId": "B", "expr": "rate(mext_neural_streamed_bytes_total[1m]) / 1e6", "legendFormat": "model weights" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "MEXT resident RAM",
+      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_pool_resident_bytes" }]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Compression ratio",
+      "gridPos": { "h": 9, "w": 3, "x": 18, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [{ "color": "text", "value": null }] } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_pool_ratio", "legendFormat": "×" }]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Arena pages",
+      "description": "Packed pages holding small compressed frames.",
+      "gridPos": { "h": 9, "w": 3, "x": 21, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_pool_arena_pages", "legendFormat": "pages" }]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Neural loader: hot / cold / resident",
+      "description": "Hot weights live in unified memory, cold weights on SSD, resident is the streamed window.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "mext_neural_hot_bytes", "legendFormat": "hot (unified memory)" },
+        { "refId": "B", "expr": "mext_neural_cold_bytes", "legendFormat": "cold (SSD)" },
+        { "refId": "C", "expr": "mext_neural_resident_bytes", "legendFormat": "resident window" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Prefetch accuracy: layers and experts",
+      "gridPos": { "h": 9, "w": 6, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "mext_neural_prefetch_hit_rate * 100", "legendFormat": "layers" },
+        { "refId": "B", "expr": "mext_neural_expert_hit_rate * 100", "legendFormat": "experts (router-guided)" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Generation throughput",
+      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_neural_tokens_per_second", "legendFormat": "tok/s" }]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "RAG: chunks, clusters and query latency",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 6 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "mext_rag_chunks", "legendFormat": "chunks" },
+        { "refId": "B", "expr": "mext_rag_clusters", "legendFormat": "IVF clusters" },
+        { "refId": "C", "expr": "mext_rag_latency_ms", "legendFormat": "latency ms" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "RAG prefetch hit rate",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 50 }] } },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_rag_prefetch_hit_rate * 100" }]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "System RAM available / swap used",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 27 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "expr": "mext_memory_available_bytes", "legendFormat": "available" },
+        { "refId": "B", "expr": "mext_swap_used_bytes", "legendFormat": "swap used" }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Bytes returned to macOS",
+      "description": "madvise(MADV_DONTNEED) + munmap, cumulative.",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_pool_released_bytes_total" }]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Evictions",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_pool_evictions_total" }]
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Daemon RSS",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [{ "refId": "A", "expr": "mext_rss_bytes" }]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["mext", "apple-silicon", "memory", "mlx"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "Prometheus", "value": "Prometheus" },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Data source",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "MEXT-M1 · Predictive Memory Tiering",
+  "uid": "mext-m1",
+  "version": 1,
+  "weekStart": ""
+}
