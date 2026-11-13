@@ -6,6 +6,16 @@ All notable changes to MEXT-M1 are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-11-13
+
+### Fixed
+- Release checksums are generated with a relative filename, so
+  `scripts/install-release.sh` verifies downloads correctly.
+- The installer busts the release CDN cache after an asset re-upload.
+- `scripts/e2e.sh` falls back to the system Python when `.venv` is absent.
+- CI moved to `macos-15` and now gates on `clippy -D warnings`, `ruff`, and both
+  e2e modes.
+
 ## [0.6.0] — 2026-11-13
 
 ### Added

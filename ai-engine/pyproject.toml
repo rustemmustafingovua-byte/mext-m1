@@ -1,6 +1,6 @@
 [project]
 name = "mext-ai"
-version = "0.6.0"
+version = "0.6.1"
 description = "MEXT-M1 AI engine: MLX layer streamer + zero-RAM LanceDB RAG"
 requires-python = ">=3.10"
 dependencies = [
