@@ -145,6 +145,24 @@ impl Snapshot {
         out
     }
 
+    /// Approximate quantile in milliseconds (upper bound of the bucket that
+    /// contains the observation). Returns 0 for an empty histogram.
+    pub fn quantile(&self, q: f64) -> f64 {
+        if self.count == 0 {
+            return 0.0;
+        }
+        let q = q.clamp(0.0, 1.0);
+        let target = ((q * self.count as f64).ceil() as u64).max(1);
+        let mut cumulative = 0u64;
+        for (upper, count) in self.buckets.iter().zip(self.counts.iter()) {
+            cumulative += *count;
+            if cumulative >= target {
+                return *upper;
+            }
+        }
+        *self.buckets.last().unwrap_or(&0.0)
+    }
+
     /// Total number of observations.
     pub fn count(&self) -> u64 {
         self.count
@@ -234,6 +252,19 @@ mod tests {
         let snap = h.snapshot();
         assert_eq!(snap.count(), 4);
         assert!((snap.sum() - expected_sum).abs() < 1e-9);
+    }
+
+    #[test]
+    fn quantiles_use_cumulative_buckets() {
+        let h = Histogram::new();
+        for value in [0.4, 1.0, 2.5, 100.0] {
+            h.observe(value);
+        }
+        let snap = h.snapshot();
+        assert_eq!(snap.quantile(0.5), 1.0);
+        assert_eq!(snap.quantile(0.99), 100.0);
+        assert_eq!(snap.quantile(0.0), 0.5);
+        assert_eq!(Histogram::new().snapshot().quantile(0.95), 0.0);
     }
 
     #[test]

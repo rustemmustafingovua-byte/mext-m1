@@ -8,6 +8,6 @@ Two predictive layers on top of the Rust core:
   prefetcher that warms IVF clusters while the user is still typing.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = ["__version__"]

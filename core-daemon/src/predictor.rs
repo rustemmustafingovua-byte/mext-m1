@@ -269,6 +269,26 @@ impl Predictor {
     }
 
     /// Number of distinct paths tracked in the frequency table.
+    /// Jaccard similarity of the files both profiles have seen.
+    ///
+    /// Used by `mext profiles merge --auto` to weight sources: a profile of the
+    /// same kind of project contributes more than an unrelated dataset.
+    pub fn similarity(&self, other: &Predictor) -> f32 {
+        use std::collections::HashSet;
+        let left: HashSet<&str> = self.frequency.keys().map(String::as_str).collect();
+        let right: HashSet<&str> = other.frequency.keys().map(String::as_str).collect();
+        if left.is_empty() || right.is_empty() {
+            return 0.0;
+        }
+        let intersection = left.intersection(&right).count() as f32;
+        let union = left.union(&right).count() as f32;
+        if union == 0.0 {
+            0.0
+        } else {
+            intersection / union
+        }
+    }
+
     /// Keep only the strongest edges of a row (bounded graph growth).
     fn bound_row(row: &mut HashMap<String, f32>) {
         let mut pairs: Vec<(String, f32)> = row.iter().map(|(k, v)| (k.clone(), *v)).collect();
@@ -529,6 +549,28 @@ mod tests {
         q.merge_from(&q.clone(), 1.0);
         assert_eq!(q.edge_count(), before);
         assert_eq!(q.transitions, 2);
+    }
+
+    #[test]
+    fn similarity_is_jaccard_over_seen_files() {
+        let mut a = Predictor::new();
+        a.observe("src/a.rs", 9);
+        a.observe("src/b.rs", 9);
+        a.observe("src/c.rs", 9);
+        let mut b = Predictor::new();
+        b.observe("src/a.rs", 9);
+        b.observe("src/b.rs", 9);
+        b.observe("docs/x.md", 9);
+
+        let sim = a.similarity(&b);
+        // union {a,b,c,x} = 4, intersection {a,b} = 2
+        assert!((sim - 0.5).abs() < 1e-6, "{sim}");
+        assert!((a.similarity(&a) - 1.0).abs() < 1e-6);
+
+        let mut disjoint = Predictor::new();
+        disjoint.observe("other/file.py", 9);
+        assert_eq!(a.similarity(&disjoint), 0.0);
+        assert_eq!(Predictor::new().similarity(&a), 0.0);
     }
 
     #[test]

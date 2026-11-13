@@ -82,6 +82,18 @@ def build_parser() -> argparse.ArgumentParser:
     gguf_warm.add_argument("--lookahead", type=int, default=2)
     gguf_warm.add_argument("--json", action="store_true")
 
+    gguf_prewarm = gguf_sub.add_parser(
+        "prewarm",
+        help="gradually page in every layer (background warmer for llama.cpp)",
+    )
+    gguf_prewarm.add_argument("file")
+    gguf_prewarm.add_argument("--layers", default="all", help="`all` or 0,1,2 / 0-5")
+    gguf_prewarm.add_argument("--lookahead", type=int, default=2)
+    gguf_prewarm.add_argument(
+        "--pace-ms", type=int, default=0, help="sleep between layers to avoid SSD bursts"
+    )
+    gguf_prewarm.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -165,6 +177,55 @@ def cmd_gguf_warm(args: argparse.Namespace) -> int:
         f"  session        {stats.get('layers_warmed', 0)} layers · "
         f"{_format_bytes(stats.get('total_bytes', 0))} · "
         f"{stats.get('MBps', 0.0):.1f} MB/s"
+    )
+    return 0
+
+
+def cmd_gguf_prewarm(args: argparse.Namespace) -> int:
+    from .gguf import GgufFile, LayerPageWarmer
+
+    with GgufFile.open(args.file) as gguf:
+        if str(args.layers).strip().lower() in ("all", "*", ""):
+            ids = sorted(gguf.layers)
+        else:
+            ids = _parse_layer_list(args.layers)
+        warmer = LayerPageWarmer(gguf, lookahead=args.lookahead)
+        started = time.perf_counter()
+        warmed: list[int] = []
+        touched = 0
+        for layer_id in ids:
+            result = warmer.warm_layers([layer_id])
+            if result["layers"]:
+                warmed.append(layer_id)
+                touched += result["bytes"]
+                if not args.json:
+                    print(
+                        f"  layer {layer_id:>3} · {result['bytes'] / 1e6:.2f} MB · "
+                        f"{result['MBps']:.0f} MB/s",
+                        file=sys.stderr,
+                    )
+            if args.pace_ms > 0:
+                time.sleep(args.pace_ms / 1000.0)
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        payload = {
+            "path": str(gguf.path),
+            "layers": warmed,
+            "layers_total": len(gguf.layers),
+            "bytes": touched,
+            "ms": round(elapsed_ms, 2),
+            "MBps": round((touched / 1e6) / (elapsed_ms / 1000.0), 2) if elapsed_ms > 0 else 0.0,
+            "pace_ms": args.pace_ms,
+            "stats": warmer.stats(),
+        }
+
+    if args.json:
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    print(
+        f"prewarmed {len(payload['layers'])}/{payload['layers_total']} layers · "
+        f"{_format_bytes(payload['bytes'])} in {payload['ms']:.1f} ms "
+        f"({payload['MBps']:.1f} MB/s, pace {payload['pace_ms']} ms)"
     )
     return 0
 
@@ -400,7 +461,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "query":
         return cmd_query(args)
     if args.cmd == "gguf":
-        return cmd_gguf_inspect(args) if args.gguf_cmd == "inspect" else cmd_gguf_warm(args)
+        if args.gguf_cmd == "inspect":
+            return cmd_gguf_inspect(args)
+        if args.gguf_cmd == "warm":
+            return cmd_gguf_warm(args)
+        return cmd_gguf_prewarm(args)
     if args.cmd == "selftest":
         return cmd_selftest(args)
     if args.cmd == "prepare":

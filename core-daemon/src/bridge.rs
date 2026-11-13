@@ -80,6 +80,21 @@ impl AiBridge {
             .ok()
     }
 
+    /// Parse a GGUF header/metadata/tensor table (no weights loaded).
+    pub fn gguf_inspect(&self, path: &str) -> Option<Value> {
+        self.client.call("gguf.inspect", json!({"path": path})).ok()
+    }
+
+    /// Page in selected GGUF layers through the Python warmer.
+    pub fn gguf_warm(&self, path: &str, layers: &[u32], lookahead: u32) -> Option<Value> {
+        self.client
+            .call(
+                "gguf.warm",
+                json!({"path": path, "layers": layers, "lookahead": lookahead}),
+            )
+            .ok()
+    }
+
     /// Ask the AI side to warm files it knows about (LanceDB metadata cache).
     pub fn prefetch(&self, paths: &[String]) -> bool {
         if paths.is_empty() {

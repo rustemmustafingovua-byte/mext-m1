@@ -102,6 +102,43 @@ enum Cmd {
         #[command(subcommand)]
         action: Option<ProfilesCmd>,
     },
+    /// Inspect GGUF checkpoints and warm layer pages (delegates to the Python toolkit).
+    Gguf {
+        #[command(subcommand)]
+        action: GgufCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum GgufCmd {
+    /// Print header/metadata/tensor table without loading weights.
+    Inspect {
+        file: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Page in selected layers.
+    Warm {
+        file: PathBuf,
+        #[arg(long, default_value = "0,1,2")]
+        layers: String,
+        #[arg(long, default_value_t = 2)]
+        lookahead: u32,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Gradually page in every layer; a background warmer for llama.cpp.
+    Prewarm {
+        file: PathBuf,
+        #[arg(long, default_value = "all")]
+        layers: String,
+        #[arg(long, default_value_t = 2)]
+        lookahead: u32,
+        #[arg(long, default_value_t = 10)]
+        pace_ms: u64,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -126,6 +163,9 @@ enum ProfilesCmd {
         /// Keep the source profiles on disk.
         #[arg(long)]
         keep: bool,
+        /// Derive each source weight from profile similarity instead of --weight.
+        #[arg(long)]
+        auto: bool,
     },
 }
 
@@ -306,12 +346,73 @@ async fn main() -> Result<()> {
         }
         Cmd::Doctor { json } => doctor(json),
         Cmd::Profiles { action } => profiles_command(action),
+        Cmd::Gguf { action } => gguf_command(action),
         Cmd::Stop { socket } => {
             let resp = client(socket).call("shutdown", json!({}))?;
             println!("{}", serde_json::to_string(&resp)?);
             Ok(())
         }
     }
+}
+
+fn gguf_command(action: GgufCmd) -> Result<()> {
+    let config = Config::new(".", 2 << 30)?;
+    let mut owned: Vec<String> = vec!["gguf".into()];
+    match action {
+        GgufCmd::Inspect { file, json } => {
+            owned.extend(["inspect".into(), absolutize(&file)?.display().to_string()]);
+            if json {
+                owned.push("--json".into());
+            }
+        }
+        GgufCmd::Warm {
+            file,
+            layers,
+            lookahead,
+            json,
+        } => {
+            owned.extend([
+                "warm".into(),
+                absolutize(&file)?.display().to_string(),
+                "--layers".into(),
+                layers,
+                "--lookahead".into(),
+                lookahead.to_string(),
+            ]);
+            if json {
+                owned.push("--json".into());
+            }
+        }
+        GgufCmd::Prewarm {
+            file,
+            layers,
+            lookahead,
+            pace_ms,
+            json,
+        } => {
+            owned.extend([
+                "prewarm".into(),
+                absolutize(&file)?.display().to_string(),
+                "--layers".into(),
+                layers,
+                "--lookahead".into(),
+                lookahead.to_string(),
+                "--pace-ms".into(),
+                pace_ms.to_string(),
+            ]);
+            if json {
+                owned.push("--json".into());
+            }
+        }
+    }
+    let args: Vec<&str> = owned.iter().map(|value| value.as_str()).collect();
+    let status = run::python_command(&config, &args)
+        .context("the GGUF toolkit needs the Python engine (run ./setup.sh)")?
+        .status()?;
+    if !status.success() {
+        bail!("gguf command failed with {status}");
+    }
+    Ok(())
 }
 
 fn profiles_config() -> Result<Config> {
@@ -323,7 +424,12 @@ fn profiles_command(action: Option<ProfilesCmd>) -> Result<()> {
     match action.unwrap_or(ProfilesCmd::List { json: false }) {
         ProfilesCmd::List { json } => profiles_list(&config, json),
         ProfilesCmd::Show { name, json } => profiles_show(&config, &name, json),
-        ProfilesCmd::Merge { into, weight, keep } => profiles_merge(&config, &into, weight, keep),
+        ProfilesCmd::Merge {
+            into,
+            weight,
+            keep,
+            auto,
+        } => profiles_merge(&config, &into, weight, keep, auto),
     }
 }
 
@@ -400,7 +506,7 @@ fn profiles_show(config: &Config, name: &str, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn profiles_merge(config: &Config, into: &str, weight: f32, keep: bool) -> Result<()> {
+fn profiles_merge(config: &Config, into: &str, weight: f32, keep: bool, auto: bool) -> Result<()> {
     if !weight.is_finite() || !(0.0..=10.0).contains(&weight) {
         bail!("--weight must be a finite number between 0 and 10 (got {weight})");
     }
@@ -434,7 +540,17 @@ fn profiles_merge(config: &Config, into: &str, weight: f32, keep: bool) -> Resul
                 continue;
             }
         };
-        target.merge_from(&other, weight);
+        let (source_weight, note) = if auto {
+            let similarity = target.similarity(&other);
+            let derived = (0.2 + 0.6 * similarity).clamp(0.05, 0.9);
+            (derived, format!(" · similarity {similarity:.2}"))
+        } else {
+            (weight, String::new())
+        };
+        if auto {
+            println!("  {} → weight {source_weight:.2}{note}", profile.name);
+        }
+        target.merge_from(&other, source_weight);
         merged += 1;
         if !keep && std::fs::remove_dir_all(config.profiles_dir().join(&profile.name)).is_ok() {
             removed += 1;

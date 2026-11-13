@@ -128,10 +128,10 @@ make run-ai RAM=4G                      # с реальным id модели (M
 | `mext index DIR` | перестроить LanceDB-индекс (Python-движок) |
 | `mext query "..."` | запрос к RAG из терминала |
 | `mext doctor` | диагностика окружения |
-| `mext profiles [list/show/merge]` | профили предиктора: список, статистика, слияние в один |
+| `mext profiles [list/show/merge]` | профили предиктора: список, статистика, слияние в один (`--auto` — вес по похожести) |
+| `mext gguf inspect/warm/prewarm FILE` | GGUF без загрузки весов, прогрев слоёв, постепенный prewarm |
 | `mext stop` | мягко остановить демон (сохраняет предиктор) |
-| `.venv/bin/mext-ai gguf inspect FILE` | метаданные/тензоры/слои GGUF без загрузки весов |
-| `.venv/bin/mext-ai gguf warm FILE --layers 0,1` | прогрев страниц выбранных слоёв (`MADV_WILLNEED`) |
+| | `.venv/bin/mext-ai gguf inspect FILE` | то же из Python-движка (без Rust CLI) |
 
 Флаги `start`: `--no-ai`, `--no-neural`, `--no-rag`, `--demo`, `--moe`
 (router-guided эксперты в демо-модели), `--trace-open[=backend]`, `--port`,
@@ -253,9 +253,20 @@ score(next | current) = 0.72 · P(next | current)      # цепь Маркова
 .venv/bin/mext-ai gguf warm ~/models/qwen2.5-7b-q4_k_m.gguf --layers 0,1,2 --lookahead 2
 ```
 
-RPC: `gguf.inspect {path}` и `gguf.warm {path, layers, lookahead}`. Это позволяет
-внешнему раннеру (llama.cpp) дёргать прогрев через `~/.mext/ai.sock` до чтения
-слоя. Ограничение: сам инференс GGUF не реализован — веса не декодируются.
+RPC: `gguf.inspect {path}` и `gguf.warm {path, layers, lookahead}`; HTTP на
+дашборде: `GET /api/gguf/inspect?path=…` и `POST /api/gguf/warm
+{"path":…,"layers":[…],"lookahead":2}`. Сам инференс GGUF не реализован — веса не
+декодируются, но прогрев встроен в запуск llama.cpp:
+
+```bash
+bash scripts/llama-with-mext.sh \
+  --model ~/models/qwen2.5-coder-7b-q4_k_m.gguf \
+  --runner ~/llama.cpp/build/bin/llama-cli --pace-ms 10 \
+  -- -m ~/models/qwen2.5-coder-7b-q4_k_m.gguf -p "def fib(n):" -n 128
+```
+
+Обёртка поднимает фоновый `gguf prewarm` (постепенно, по слоям) и запускает
+раннер; прогретые страницы — общий page cache, без копий и хуков.
 
 ### 4b. Профили предиктора
 
@@ -265,7 +276,9 @@ RPC: `gguf.inspect {path}` и `gguf.warm {path, layers, lookahead}`. Это по
 переопределяет профиль (удобно для общих датасетов). Натренированные сессии
 можно переносить: `mext profiles list`, `mext profiles show <name>`,
 `mext profiles merge --into new-project --weight 0.35` (без `--keep` источники
-удаляются, веса и счётчики складываются с коэффициентом).
+удаляются, веса и счётчики складываются с коэффициентом). `--auto` выводит вес
+каждого источника из Jaccard-похожести множеств файлов (0.2 + 0.6·similarity),
+чтобы близкие проекты влияли сильнее.
 
 ### 5. Оркестратор и дашборд
 
@@ -291,7 +304,9 @@ curl -s localhost:8765/metrics | grep -E 'mext_pool|mext_predictor|mext_neural'
 
 **Гистограммы latency.** `/metrics` отдаёт полноценные Prometheus-гистограммы
 `mext_pool_warm_latency_ms` и `mext_rag_query_latency_ms` (`_bucket/_sum/_count`,
-бакеты 0.5 мс … 10 с). В Grafana есть панель p95 через `histogram_quantile`.
+бакеты 0.5 мс … 10 с). В Grafana есть панель p95 через `histogram_quantile`, а
+живой дашборд показывает `p95` прогрева прямо в карточке SSD (поле `latency`
+в `/api/snapshot`).
 
 **Grafana.** Готовый дашборд лежит в `docs/grafana/mext-dashboard.json`
 (16 панелей: пул физика/виртуалка, hit rate, pressure, SSD MB/s, neural
@@ -409,8 +424,8 @@ CI (`.github/workflows/ci.yml`) гоняет на `macos-14`: `cargo fmt --check
 
 ```bash
 make test          # всё сразу
-make test-rust     # 63 теста
-make test-py       # 54 теста
+make test-rust     # 65 тестов
+make test-py       # 55 тестов
 make selftest      # MLX forward + LanceDB + префетч
 make e2e           # живой демон: CLI + HTTP (без AI, быстро)
 make e2e-ai        # то же + MLX и LanceDB
@@ -418,14 +433,15 @@ make e2e-ai        # то же + MLX и LanceDB
 
 Покрыто:
 
-* **Rust (63):** парсинг размеров/swap, `vm_stat`, `madvise` на своих маппингах,
+* **Rust (65):** парсинг размеров/swap, `vm_stat`, `madvise` на своих маппингах,
   ARC (вытеснение, ghost-адаптация `p`, update/shrink/drain), LZ4-пул (hit/miss,
   случайное чтение, жёсткий бюджет, `released_bytes > 0`, пропуск больших файлов),
   предиктор (Марков, время суток, hit rate, сохранение), FSEvents-наблюдатель,
   JSON-RPC по UDS, снимок ядра, IPC-команды, **гистограммы latency**
   (бакеты/кумулятивность/NaN), **слияние профилей** (веса, счётчики, границы),
-  листинг профилей с пропуском битых файлов.
-* **Python (54):** JSON-RPC сервер/клиент (ошибки, конкурентные клиенты), контроллер
+  листинг профилей с пропуском битых файлов, квантили гистограмм и
+  Jaccard-похожесть профилей.
+* **Python (55):** JSON-RPC сервер/клиент (ошибки, конкурентные клиенты), контроллер
   памяти (рост/сжатие/min), классификация весов, cold store (бюджет, pin,
   фоновый префетч, индекс), MLX-раннер (генерация, рост prefetch-hit, тюнинг кэша),
   LanceDB (индексация, инкрементальность, поиск, кластеры, `prefetch_hit`), движок
@@ -435,8 +451,8 @@ make e2e-ai        # то же + MLX и LanceDB
   плотному эталону, ограничение кэша экспертов, router-guided префетч),
   **paged SwitchGLU** (fp16 и 4-bit эксперты, tiny Mixtral end-to-end,
   router-guided lookahead между слоями), **GGUF** (синтетический файл v3:
-  метаданные, выравнивание, размеры Q4_0, слои, эксперты, warmer, CLI, RPC,
-  отказ на мусоре).
+  метаданные, выравнивание, размеры Q4_0, слои, эксперты, warmer, gradual
+  prewarm, CLI/RPC, отказ на мусоре).
 * **Grafana-модель (1):** JSON парсится, у каждой панели есть Prometheus-запрос
   с метрикой `mext_*`, покрыты все три слоя и pressure.
 * **E2E (`make e2e` / `make e2e-ai`):** поднимает настоящий демон на временном
@@ -575,6 +591,7 @@ ultraram/
 ├── scripts/e2e.sh                end-to-end: демон + CLI + HTTP + SSE/metrics
 ├── scripts/dev.sh                watch-цикл пересборки и рестарта
 ├── scripts/install-service.sh    launchd user service
+├── scripts/llama-with-mext.sh    llama.cpp + фоновый GGUF-warmer
 ├── .github/workflows/ci.yml      CI на macos-14
 ├── docs/dashboard.png            скриншот живого запуска
 ├── docs/grafana/                 Grafana-дашборд + инструкция по импорту
@@ -585,6 +602,6 @@ ultraram/
 ## Roadmap
 
 * Нативный EndpointSecurity-клиент (нужен Apple entitlement) вместо shell-out.
-* Интеграция GGUF-warmer с запущенным llama.cpp (сейчас RPC/CLI для внешнего раннера).
-* Автоматический выбор веса слияния профилей по похожести путей.
+* Декодирование GGUF внутри MEXT (сейчас — только прогрев страниц для llama.cpp).
 * Гистограммы размера кадра и cache-hit по типам файлов.
+* Калибровка скорости prewarm под фактический темп чтения llama.cpp.

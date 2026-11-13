@@ -401,7 +401,12 @@
     setText('hit-chip', fmtPct(pred.hit_rate));
 
     setText('ssd-mbps', `${(p.ssd_mbps || 0).toFixed(1)} MB/s`);
-    setText('ssd-warm', `${(act.warm_avg_ms || 0).toFixed(1)} ms avg`);
+    const lat = s.latency || {};
+    const warmP95 = Number(lat.warm_p95_ms) || 0;
+    setText(
+      'ssd-warm',
+      `${(act.warm_avg_ms || 0).toFixed(1)} ms avg · p95 ${warmP95 < 10 ? warmP95.toFixed(1) : warmP95.toFixed(0)} ms`
+    );
     setBar('ssd-bar', (p.ssd_mbps || 0) / Math.max(40, Math.max(...state.history.map((x) => x.ssd), 1)));
     setText('ssd-warms', `${fmtNum(act.warms)} warms`);
     setText('swap-used', `swap ${fmtBytes(pressure.swap_used)}`);

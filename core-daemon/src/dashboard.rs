@@ -46,6 +46,8 @@ pub fn router(core: Arc<Core>) -> Router {
         .route("/api/budget", post(budget))
         .route("/api/rag/type", get(rag_type))
         .route("/api/rag/query", get(rag_query))
+        .route("/api/gguf/inspect", get(gguf_inspect))
+        .route("/api/gguf/warm", post(gguf_warm))
         .route("/api/stream", get(sse))
         .route("/metrics", get(prometheus))
         .route("/api/health", get(health))
@@ -536,6 +538,50 @@ async fn budget(State(core): State<Arc<Core>>, Json(body): Json<Value>) -> Respo
         )
             .into_response(),
     }
+}
+
+async fn gguf_inspect(
+    State(core): State<Arc<Core>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let path = params.get("path").cloned().unwrap_or_default();
+    if path.is_empty() {
+        return Json(json!({"available": false, "error": "missing `path` query parameter"}));
+    }
+    let core2 = Arc::clone(&core);
+    let result = tokio::task::spawn_blocking(move || core2.ai.gguf_inspect(&path))
+        .await
+        .ok()
+        .flatten();
+    Json(result.unwrap_or_else(|| json!({"available": false, "error": "AI engine unreachable"})))
+}
+
+async fn gguf_warm(State(core): State<Arc<Core>>, Json(body): Json<Value>) -> Json<Value> {
+    let Some(path) = body.get("path").and_then(|value| value.as_str()) else {
+        return Json(json!({"available": false, "error": "missing `path`"}));
+    };
+    let layers: Vec<u32> = body
+        .get("layers")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_u64())
+                .map(|value| value as u32)
+                .collect()
+        })
+        .unwrap_or_default();
+    let lookahead = body
+        .get("lookahead")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(2) as u32;
+    let path = path.to_string();
+    let core2 = Arc::clone(&core);
+    let result = tokio::task::spawn_blocking(move || core2.ai.gguf_warm(&path, &layers, lookahead))
+        .await
+        .ok()
+        .flatten();
+    Json(result.unwrap_or_else(|| json!({"available": false, "error": "AI engine unreachable"})))
 }
 
 async fn rag_type(

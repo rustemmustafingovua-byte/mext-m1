@@ -514,6 +514,8 @@ impl Core {
             .unwrap_or_else(|| json!({"available": false}));
         let effective_budget = self.effective_budget.load(Ordering::SeqCst).max(0) as u64;
         let inflight = self.inflight.load(Ordering::SeqCst);
+        let warm_latency = self.warm_latency.snapshot();
+        let rag_latency = self.rag_latency.snapshot();
 
         json!({
             "ts": unix_now(),
@@ -582,6 +584,14 @@ impl Core {
                 "pending": pending,
                 "observations": observations,
                 "hot": hot.into_iter().map(|(p, f)| json!({"path": p, "weight": f})).collect::<Vec<_>>(),
+            },
+            "latency": {
+                "warm_p50_ms": (warm_latency.quantile(0.5) * 100.0).round() / 100.0,
+                "warm_p95_ms": (warm_latency.quantile(0.95) * 100.0).round() / 100.0,
+                "warm_samples": warm_latency.count(),
+                "rag_p50_ms": (rag_latency.quantile(0.5) * 100.0).round() / 100.0,
+                "rag_p95_ms": (rag_latency.quantile(0.95) * 100.0).round() / 100.0,
+                "rag_samples": rag_latency.count(),
             },
             "activity": {
                 "opens": stats.0,

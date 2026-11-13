@@ -137,12 +137,23 @@ def main():
 
 def snapshot_shape():
     snap = get("/api/snapshot")
-    for key in ("memory", "pressure", "pool", "predictor", "activity", "events", "neural", "rag"):
+    for key in (
+        "memory",
+        "pressure",
+        "pool",
+        "predictor",
+        "activity",
+        "latency",
+        "events",
+        "neural",
+        "rag",
+    ):
         assert key in snap, f"missing {key}"
     assert snap["memory"]["total"] > 0
     assert snap["pool"]["budget_bytes"] > 0
     assert snap["pressure"]["level"] in ("green", "yellow", "red", "unknown")
     assert isinstance(snap["events"], list)
+    assert "warm_p95_ms" in snap["latency"]
     return f"RAM {snap['memory']['total'] // 2**30} GiB, pressure {snap['pressure']['level']}"
 
 
@@ -238,6 +249,15 @@ def prometheus_works():
     return f"{len(text.splitlines())} lines"
 
 
+def gguf_endpoint_survives():
+    # No GGUF fixture in e2e: the endpoint must answer, not crash, and must not
+    # pretend to have warmed anything.
+    payload = get("/api/gguf/inspect?path=/definitely/missing.gguf")
+    assert isinstance(payload, dict)
+    assert payload.get("available") is False or "error" in payload, payload
+    return "missing file reported cleanly"
+
+
 def stats_are_sane():
     snap = get("/api/snapshot")
     pool = snap["pool"]
@@ -245,7 +265,11 @@ def stats_are_sane():
         assert pool["ratio"] >= 1.0, pool["ratio"]
         assert pool["overhead_bytes"] >= 0
     assert snap["activity"]["opens"] > 0
-    return f"ratio {pool['ratio']:.2f}×, evictions {pool['evictions']}, released {pool['released_bytes'] // 1024} KiB"
+    assert snap["latency"]["warm_samples"] > 0
+    return (
+        f"ratio {pool['ratio']:.2f}×, warm p95 {snap['latency']['warm_p95_ms']:.1f} ms, "
+        f"evictions {pool['evictions']}, released {pool['released_bytes'] // 1024} KiB"
+    )
 
 
 for name, fn in [
@@ -257,6 +281,7 @@ for name, fn in [
     ("rag endpoint", rag_degrades_cleanly),
     ("neural metrics", neural_reports),
     ("pool accounting", stats_are_sane),
+    ("gguf endpoint", gguf_endpoint_survives),
     ("SSE /api/stream", sse_stream_works),
     ("prometheus /metrics", prometheus_works),
 ]:

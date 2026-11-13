@@ -208,6 +208,18 @@ def test_cli_inspect_and_warm(gguf_path, capsys):
     assert result["bytes"] > 0
 
 
+def test_cli_prewarm_all_layers(gguf_path, capsys):
+    from mext_ai.cli import main
+
+    assert main(["gguf", "prewarm", str(gguf_path), "--pace-ms", "0", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["layers"] == [0, 1]
+    assert payload["layers_total"] == 2
+    assert payload["bytes"] > 0
+    assert payload["pace_ms"] == 0
+    assert payload["stats"]["layers_warmed"] == 2
+
+
 def test_engine_rpc(gguf_path, tmp_path):
     from mext_ai.engine import AiEngine
 
